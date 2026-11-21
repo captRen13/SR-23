@@ -46,6 +46,9 @@ function Update()
     set("Group", pad(group, 2))
     set("Cycle", pad(cycle, 2))
     set("Progress", string.format("%.2f", progress))
+
+    local fillWidth = math.max(1, math.floor(644 * progress / 100))
+    SKIN:Bang("!SetOption", "MeterProgressFill", "Shape", "Rectangle 0,0," .. fillWidth .. ",7,3 | Fill Color 190,125,69,255 | StrokeWidth 0")
     set("Elapsed", string.format("%d", elapsed))
 
     local utc = os.date("!*t", now)
