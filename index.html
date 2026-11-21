@@ -21,7 +21,7 @@
     .bar{height:7px;background:#263348;border-radius:9px;overflow:hidden;margin-top:9px}.bar>div{height:100%;background:linear-gradient(90deg,#5b9bd3,#b4ddff);width:0%}.between{display:flex;justify-content:space-between;gap:10px;font-size:12px}.muted{color:var(--muted)}.hidden{display:none!important}
     .calendar-grid{display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:5px;margin-top:15px}.cell{padding:8px 1px;text-align:center;border:1px solid var(--line);border-radius:7px;font-size:11px;font-variant-numeric:tabular-nums;color:var(--muted)}.cell.past{background:#172638;color:#b3c1d2}.cell.current{background:#24496b;border:2px solid var(--accent2);color:white;font-weight:800}.legend{display:flex;gap:13px;flex-wrap:wrap;font-size:10px;color:var(--muted);margin-top:13px}
     .note{font-size:12px;line-height:1.55;color:var(--muted)}.bigdate{font-size:30px;font-weight:750;font-variant-numeric:tabular-nums;margin:10px 0}.foot{text-align:center;color:var(--muted);font-size:10px;letter-spacing:.1em;margin-top:18px}.btnrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.action{cursor:pointer}.action:active{transform:scale(.98)}
-  </style>
+  .calendar-grid{display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:5px;margin-top:15px}.cell{padding:8px 1px;text-align:center;border:1px solid var(--line);border-radius:7px;font-size:11px;color:var(--muted);background:#0d1624;min-width:0}.cell.past{background:#172638;color:#b3c1d2}.cell.current{border:2px solid var(--accent2);color:#fff;font-weight:800}.cell.selected{outline:2px solid #5b9bd3;outline-offset:1px;background:#24496b;color:#fff;font-weight:800}.navrow{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:10px}.navrow .action{padding:11px 4px}.jump{display:flex;gap:8px;margin-top:10px}.field{width:100%;min-width:0;background:#0b1421;border:1px solid var(--line);border-radius:10px;color:var(--text);padding:11px;font-size:14px}.action.primary{background:#1b3550;border-color:#5c9bd0}.error{color:#ffb4a9;margin-top:7px}.result{margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:12px;background:#0b1421}.upcoming{background:#0d1624}@media(max-width:370px){.calendar-grid{gap:3px}.cell{font-size:10px;padding:7px 0}.jump{flex-direction:column}}\n  </style>
 </head>
 <body>
 <div class="wrap">
@@ -63,19 +63,29 @@
 
   <main id="calendar-view" class="hidden">
     <section class="panel">
-      <div class="label">CURRENT GALACTIC STARDATE</div>
+      <div class="label">GALACTIC TIMELINE NAVIGATOR</div>
       <div class="bigdate" id="caldate">000.00.00</div>
       <div class="between"><span class="muted">Block</span><strong id="calblock">000</strong></div>
       <div class="between" style="margin-top:10px"><span class="muted">Group</span><strong id="calgroup">00</strong></div>
       <div class="between" style="margin-top:10px"><span class="muted">Cycle within group</span><strong id="calcycle">00</strong></div>
+      <p class="note" id="selectionnote">Viewing current Galactic Cycle.</p>
+      <div class="navrow"><button class="action" data-move="-1" data-unit="1">‹ Cycle</button><button class="action" data-move="-1" data-unit="100">‹ Group</button><button class="action" data-move="-1" data-unit="10000">‹ Block</button></div>
+      <div class="navrow"><button class="action" data-move="1" data-unit="1">Cycle ›</button><button class="action" data-move="1" data-unit="100">Group ›</button><button class="action" data-move="1" data-unit="10000">Block ›</button></div>
+      <div class="rule"></div><div class="label">JUMP TO STARDATE</div>
+      <div class="jump"><input class="field" id="stardateinput" type="text" inputmode="decimal" placeholder="BBB.GG.CC" aria-label="Block.Group.Cycle"><button class="action primary" id="jumpbutton">Go</button></div>
+      <div class="note">Enter Block.Group.Cycle, such as 001.82.77. Future dates are supported.</div><div class="note error" id="jumperror" role="status"></div>
     </section>
-    <section class="panel">
-      <div class="between"><strong>Group cycle chart</strong><span class="muted" id="gridlabel">Group 00</span></div>
-      <div class="note" style="margin-top:5px">Each square represents one Galactic Cycle. There are 100 Cycles in a Group.</div>
+    <section class="panel"><div class="between"><strong>Group cycle chart</strong><span class="muted" id="gridlabel">Group 00</span></div>
+      <div class="note" style="margin-top:5px">Select any square to inspect a Cycle in the timeline.</div>
       <div class="calendar-grid" id="cyclegrid"></div>
-      <div class="legend"><span>■ Completed</span><span style="color:#b5ddff">■ Current</span><span>□ Upcoming</span></div>
+      <div class="legend"><span>■ Earlier</span><span style="color:#b5ddff">■ Current</span><span>□ Future</span><span style="color:#8bc5ff">▣ Selected</span></div>
     </section>
-    <section class="panel"><strong>Calendar structure</strong><p class="note">100 Cycles make one Group. 100 Groups make one Block. A Cycle contains exactly 100,000 SI seconds.</p></section>
+    <section class="panel"><strong>EARTH DATE CONVERTER</strong><p class="note">Choose a date and time in your iPhone's local time zone.</p>
+      <input class="field" id="earthinput" type="datetime-local" aria-label="Earth local date and time">
+      <button class="action primary" id="convertbutton" style="margin-top:9px;width:100%">Convert to Galactic Time</button>
+      <div class="note error" id="converterror" role="status"></div><div id="convertresult" class="result hidden" aria-live="polite"></div>
+    </section>
+    <section class="panel"><strong>Calendar structure</strong><p class="note">100 Cycles make one Group. 100 Groups make one Block. Each Galactic Cycle contains 100,000 seconds. Epoch 000 is the earliest supported date; the timeline extends indefinitely into the future.</p></section>
   </main>
 
   <main id="system-view" class="hidden">
@@ -110,40 +120,60 @@
 </div>
 <script>
 (()=>{
- const epoch=Date.UTC(1968,11,21,12,51,0),cycleSeconds=100000;
+ 'use strict';
+ const EPOCH=Date.UTC(1968,11,21,12,51,0),CYCLE_MS=100000000,GROUP=100,BLOCK=10000;
  const $=id=>document.getElementById(id),pad=(n,w=2)=>String(n).padStart(w,'0');
- let previousCycle=-1;
- function update(){
-   const now=Date.now(),elapsed=Math.max(0,(now-epoch)/1000);
-   const totalCycles=Math.floor(elapsed/cycleSeconds);
-   const block=Math.floor(totalCycles/10000);
-   const group=Math.floor((totalCycles%10000)/100);
-   const cycle=totalCycles%100;
-   const within=elapsed%cycleSeconds;
-   const interval=Math.floor(within/10000);
-   const segment=Math.floor((within%10000)/100);
-   const unit=Math.floor(within%100);
-   const tick=Math.floor((within-Math.floor(within))*100);
-   const sd=`${pad(block,3)}.${pad(group)}.${pad(cycle)}`;
-   const gst=`${pad(interval)}.${pad(segment)}.${pad(unit)}.${pad(tick)}`;
-   $('stardate').textContent=sd;$('gst').textContent=gst;
-   $('block').textContent=pad(block,3);$('group').textContent=pad(group);$('cycle').textContent=pad(cycle);
-   $('elapsed').textContent=Math.floor(elapsed).toLocaleString('en-US');
-   const pct=within/cycleSeconds*100;$('pct').textContent=pct.toFixed(2)+'%';$('progress').style.width=pct+'%';
-   const d=new Date(now);
-   $('earthdate').textContent=d.toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric',timeZone:'UTC'});
-   $('earthtime').textContent=d.toISOString().slice(11,23)+' UTC';
-   $('caldate').textContent=sd;$('calblock').textContent=pad(block,3);$('calgroup').textContent=pad(group);$('calcycle').textContent=pad(cycle);
-   if(previousCycle!==totalCycles){
-     const grid=$('cyclegrid');grid.replaceChildren();
-     for(let i=0;i<100;i++){const cell=document.createElement('div');cell.className='cell'+(i===cycle?' current':i<cycle?' past':'');cell.textContent=pad(i);cell.setAttribute('aria-label',`Cycle ${i}${i===cycle?', current':i<cycle?', completed':', upcoming'}`);grid.appendChild(cell)}
-     $('gridlabel').textContent='Group '+pad(group);previousCycle=totalCycles;
-   }
+ let current=0,selected=0,gridKey='';
+ function fromMs(ms){
+  if(!Number.isFinite(ms)||ms<0)throw new Error('Date is before Galactic Epoch 000.');
+  const total=Math.floor(ms/CYCLE_MS),within=ms%CYCLE_MS;
+  const block=Math.floor(total/BLOCK),group=Math.floor((total%BLOCK)/GROUP),cycle=total%GROUP;
+  const interval=Math.floor(within/10000000),segment=Math.floor((within%10000000)/100000),unit=Math.floor((within%100000)/1000),tick=Math.floor((within%1000)/10);
+  return {total,block,group,cycle,within,interval,segment,unit,tick,sd:`${pad(block,3)}.${pad(group)}.${pad(cycle)}`,gst:`${pad(interval)}.${pad(segment)}.${pad(unit)}.${pad(tick)}`};
  }
- document.querySelectorAll('nav button').forEach(button=>button.addEventListener('click',()=>{
-   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b===button));
-   ['clock','calendar','system'].forEach(name=>$(name+'-view').classList.toggle('hidden',name!==button.dataset.view));
- }));
+ function renderGrid(p){
+  const key=`${p.block}.${p.group}.${current}.${selected}`;if(key===gridKey)return;gridKey=key;
+  const grid=$('cyclegrid');grid.replaceChildren();const first=p.block*BLOCK+p.group*GROUP;
+  for(let i=0;i<100;i++){const n=first+i,b=document.createElement('button');b.type='button';b.className='cell'+(n<current?' past':' upcoming')+(n===current?' current':'')+(n===selected?' selected':'');b.textContent=pad(i);b.setAttribute('aria-label',`Block ${p.block}, Group ${p.group}, Cycle ${i}`);b.addEventListener('click',()=>{selected=n;renderCalendar()});grid.appendChild(b)}
+ }
+ function renderCalendar(){
+  const b=Math.floor(selected/BLOCK),g=Math.floor((selected%BLOCK)/GROUP),c=selected%GROUP;
+  $('caldate').textContent=`${pad(b,3)}.${pad(g)}.${pad(c)}`;$('calblock').textContent=pad(b,3);$('calgroup').textContent=pad(g);$('calcycle').textContent=pad(c);
+  $('selectionnote').textContent=selected===current?'Viewing the current Galactic Cycle.':selected<current?'Viewing an earlier Galactic Cycle.':'Viewing a future Galactic Cycle.';
+  $('gridlabel').textContent=`Block ${pad(b,3)} · Group ${pad(g)}`;renderGrid({block:b,group:g});
+ }
+ function update(){
+  const now=Date.now(),ms=now-EPOCH;if(ms<0)return;const p=fromMs(ms);current=p.total;
+  $('stardate').textContent=p.sd;$('gst').textContent=p.gst;$('block').textContent=pad(p.block,3);$('group').textContent=pad(p.group);$('cycle').textContent=pad(p.cycle);$('elapsed').textContent=Math.floor(ms/1000).toLocaleString('en-US');
+  const pct=p.within/CYCLE_MS*100;$('pct').textContent=pct.toFixed(2)+'%';$('progress').style.width=pct+'%';
+  const d=new Date(now);$('earthdate').textContent=d.toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric',timeZone:'UTC'});$('earthtime').textContent=d.toISOString().slice(11,23)+' UTC';
+  if(selected===0&&gridKey==='')selected=current;
+  if(selected===current||gridKey==='')renderCalendar();
+ }
+ function jump(){
+  $('jumperror').textContent='';const m=$('stardateinput').value.trim().match(/^(\d+)\.(\d{1,2})\.(\d{1,2})$/);
+  if(!m){$('jumperror').textContent='Enter a Stardate as Block.Group.Cycle, e.g. 001.82.77.';return}
+  const b=Number(m[1]),g=Number(m[2]),c=Number(m[3]),n=b*BLOCK+g*100+c;
+  if(!Number.isSafeInteger(n)||g>99||c>99){$('jumperror').textContent='Group and Cycle must be between 00 and 99.';return}
+  selected=n;gridKey='';renderCalendar();
+ }
+ function convert(){
+  $('converterror').textContent='';$('convertresult').classList.add('hidden');const raw=$('earthinput').value;
+  if(!raw){$('converterror').textContent='Choose an Earth date and time first.';return}
+  const d=new Date(raw),ms=d.getTime()-EPOCH;if(!Number.isFinite(ms)){ $('converterror').textContent='That date could not be read.';return}
+  if(ms<0){$('converterror').textContent='That date is before Galactic Epoch 000.';return}
+  const p=fromMs(ms),r=$('convertresult');r.replaceChildren();
+  const label=document.createElement('div');label.className='label';label.textContent='CONVERTED GALACTIC STARDATE';
+  const sd=document.createElement('div');sd.className='bigdate';sd.textContent=p.sd;
+  const gst=document.createElement('div');gst.style.fontWeight='700';gst.style.fontSize='20px';gst.textContent='GST '+p.gst;
+  const utc=document.createElement('p');utc.className='note';utc.textContent='Input interpreted in device local time. UTC equivalent: '+d.toISOString();
+  const go=document.createElement('button');go.className='action primary';go.textContent='View this Cycle';go.addEventListener('click',()=>{selected=p.total;gridKey='';renderCalendar()});
+  r.append(label,sd,gst,utc,go);r.classList.remove('hidden');
+ }
+ document.querySelectorAll('nav button').forEach(btn=>btn.addEventListener('click',()=>{document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('active',x===btn));['clock','calendar','system'].forEach(v=>$(v+'-view').classList.toggle('hidden',v!==btn.dataset.view));if(btn.dataset.view==='calendar')renderCalendar()}));
+ document.querySelectorAll('[data-move]').forEach(btn=>btn.addEventListener('click',()=>{const n=selected+Number(btn.dataset.move)*Number(btn.dataset.unit);if(n<0){$('jumperror').textContent='The timeline begins at Galactic Epoch 000.';return}if(!Number.isSafeInteger(n))return;$('jumperror').textContent='';selected=n;gridKey='';renderCalendar()}));
+ $('jumpbutton').addEventListener('click',jump);$('stardateinput').addEventListener('keydown',e=>{if(e.key==='Enter')jump()});$('convertbutton').addEventListener('click',convert);
+ const now=new Date(),local=new Date(now.getTime()-now.getTimezoneOffset()*60000);$('earthinput').value=local.toISOString().slice(0,16);
  update();setInterval(update,50);document.addEventListener('visibilitychange',()=>{if(!document.hidden)update()});
 })();
 </script>
