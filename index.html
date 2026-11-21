@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#090e18">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="SR-23 Clock">
+  <meta name="description" content="The Star Runner Galactic Standard clock and calendar.">
+  <link rel="manifest" href="./manifest.json">
+  <link rel="apple-touch-icon" href="./icon-192.png">
+  <title>SR-23 Chronometer</title>
+  <style>
+    :root{color-scheme:dark;--bg:#080d16;--panel:#111a29;--line:#27354a;--text:#edf3fb;--muted:#91a2b8;--accent:#8bc5ff;--accent2:#b5ddff}
+    *{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 50% -20%,#1c3553 0%,var(--bg) 55%);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;min-height:100vh;padding:env(safe-area-inset-top) 16px env(safe-area-inset-bottom)}
+    .wrap{max-width:650px;margin:0 auto;padding:22px 0 36px}.top{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:18px}.eyebrow{font-size:10px;letter-spacing:.2em;color:var(--muted);font-weight:700}.brand{font-size:21px;font-weight:750;margin-top:5px}.live{font-size:10px;color:#b8e7c8;border:1px solid #315b48;background:#12271f;border-radius:99px;padding:7px 10px;white-space:nowrap}
+    nav{display:flex;gap:7px;margin-bottom:14px}nav button,.action{background:#121d2d;border:1px solid var(--line);color:var(--text);border-radius:11px;padding:10px 13px;font-size:13px;font-weight:600}nav button.active{background:#1b3550;border-color:#5c9bd0}
+    .panel{background:linear-gradient(145deg,rgba(22,34,52,.97),rgba(13,21,34,.97));border:1px solid var(--line);border-radius:18px;padding:18px;margin-bottom:12px;box-shadow:0 10px 35px #0003}
+    .label{font-size:10px;letter-spacing:.17em;color:var(--muted);font-weight:700}.date{font-size:clamp(34px,9vw,49px);font-weight:750;letter-spacing:.025em;font-variant-numeric:tabular-nums;margin:9px 0 4px}.clock{font-size:clamp(32px,8vw,45px);font-weight:750;letter-spacing:.015em;font-variant-numeric:tabular-nums;margin:9px 0 4px}.sub{font-size:10px;color:var(--muted);letter-spacing:.1em}.rule{height:1px;background:var(--line);margin:18px 0}.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.metric{background:#0b1421;border:1px solid var(--line);border-radius:13px;padding:13px}.metric .v{font-size:24px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:5px}.metric .k{font-size:10px;color:var(--muted);letter-spacing:.1em}
+    .bar{height:7px;background:#263348;border-radius:9px;overflow:hidden;margin-top:9px}.bar>div{height:100%;background:linear-gradient(90deg,#5b9bd3,#b4ddff);width:0%}.between{display:flex;justify-content:space-between;gap:10px;font-size:12px}.muted{color:var(--muted)}.hidden{display:none!important}
+    .calendar-grid{display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:5px;margin-top:15px}.cell{padding:8px 1px;text-align:center;border:1px solid var(--line);border-radius:7px;font-size:11px;font-variant-numeric:tabular-nums;color:var(--muted)}.cell.past{background:#172638;color:#b3c1d2}.cell.current{background:#24496b;border:2px solid var(--accent2);color:white;font-weight:800}.legend{display:flex;gap:13px;flex-wrap:wrap;font-size:10px;color:var(--muted);margin-top:13px}
+    .note{font-size:12px;line-height:1.55;color:var(--muted)}.bigdate{font-size:30px;font-weight:750;font-variant-numeric:tabular-nums;margin:10px 0}.foot{text-align:center;color:var(--muted);font-size:10px;letter-spacing:.1em;margin-top:18px}.btnrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.action{cursor:pointer}.action:active{transform:scale(.98)}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div><div class="eyebrow">STAR RUNNER · ALLIANCE SYSTEMS</div><div class="brand">SR-23 Chronometer</div></div>
+    <div class="live">● LOCAL CLOCK</div>
+  </header>
+  <nav aria-label="Main navigation">
+    <button class="active" data-view="clock">Clock</button>
+    <button data-view="calendar">Calendar</button>
+    <button data-view="system">System</button>
+  </nav>
+
+  <main id="clock-view">
+    <section class="panel">
+      <div class="label">GALACTIC STARDATE</div>
+      <div class="date" id="stardate">000.00.00</div>
+      <div class="sub">BLOCK · GROUP · CYCLE</div>
+      <div class="rule"></div>
+      <div class="label">GALACTIC STANDARD TIME</div>
+      <div class="clock" id="gst">00.00.00.00</div>
+      <div class="sub">INTERVAL · SEGMENT · UNIT · TICK</div>
+      <div class="between" style="margin-top:19px"><span class="muted">Cycle progress</span><strong id="pct">0.00%</strong></div>
+      <div class="bar"><div id="progress"></div></div>
+    </section>
+    <div class="grid">
+      <div class="metric"><div class="k">GALACTIC BLOCK</div><div class="v" id="block">000</div></div>
+      <div class="metric"><div class="k">GALACTIC GROUP</div><div class="v" id="group">00</div></div>
+      <div class="metric"><div class="k">GALACTIC CYCLE</div><div class="v" id="cycle">00</div></div>
+      <div class="metric"><div class="k">ELAPSED SI SECONDS</div><div class="v" id="elapsed" style="font-size:19px">0</div></div>
+    </div>
+    <section class="panel" style="margin-top:12px">
+      <div class="label">EARTH REFERENCE · UTC</div>
+      <div id="earthdate" style="font-size:17px;font-weight:650;margin-top:9px">—</div>
+      <div id="earthtime" class="clock" style="font-size:25px">—</div>
+      <div class="note">Earth time is provided only as a reference. Galactic time is calculated from the epoch using elapsed SI seconds.</div>
+    </section>
+  </main>
+
+  <main id="calendar-view" class="hidden">
+    <section class="panel">
+      <div class="label">CURRENT GALACTIC STARDATE</div>
+      <div class="bigdate" id="caldate">000.00.00</div>
+      <div class="between"><span class="muted">Block</span><strong id="calblock">000</strong></div>
+      <div class="between" style="margin-top:10px"><span class="muted">Group</span><strong id="calgroup">00</strong></div>
+      <div class="between" style="margin-top:10px"><span class="muted">Cycle within group</span><strong id="calcycle">00</strong></div>
+    </section>
+    <section class="panel">
+      <div class="between"><strong>Group cycle chart</strong><span class="muted" id="gridlabel">Group 00</span></div>
+      <div class="note" style="margin-top:5px">Each square represents one Galactic Cycle. There are 100 Cycles in a Group.</div>
+      <div class="calendar-grid" id="cyclegrid"></div>
+      <div class="legend"><span>■ Completed</span><span style="color:#b5ddff">■ Current</span><span>□ Upcoming</span></div>
+    </section>
+    <section class="panel"><strong>Calendar structure</strong><p class="note">100 Cycles make one Group. 100 Groups make one Block. A Cycle contains exactly 100,000 SI seconds.</p></section>
+  </main>
+
+  <main id="system-view" class="hidden">
+    <section class="panel">
+      <div class="label">GALACTIC EPOCH 000</div>
+      <div style="font-size:19px;font-weight:700;margin-top:9px">Apollo 8 · First crewed mission to travel to the Moon</div>
+      <div class="bigdate" style="font-size:23px">21 DEC 1968</div>
+      <div class="clock" style="font-size:25px">12:51:00 UTC</div>
+      <p class="note">The Galactic Chronometric Count begins at this exact instant: 1968-12-21T12:51:00Z.</p>
+    </section>
+    <section class="panel">
+      <strong>SRGS 1.0 · Time hierarchy</strong>
+      <div class="between" style="margin-top:14px"><span class="muted">1 Galactic Cycle</span><strong>100,000 seconds</strong></div>
+      <div class="between" style="margin-top:10px"><span class="muted">1 Galactic Group</span><strong>100 Cycles</strong></div>
+      <div class="between" style="margin-top:10px"><span class="muted">1 Galactic Block</span><strong>100 Groups</strong></div>
+      <div class="rule"></div>
+      <div class="between"><span class="muted">1 Interval</span><strong>10,000 seconds</strong></div>
+      <div class="between" style="margin-top:10px"><span class="muted">1 Segment</span><strong>100 seconds</strong></div>
+      <div class="between" style="margin-top:10px"><span class="muted">1 Unit</span><strong>1 second</strong></div>
+      <div class="between" style="margin-top:10px"><span class="muted">1 Tick</span><strong>0.01 second</strong></div>
+    </section>
+    <section class="panel">
+      <strong>Accuracy & synchronization</strong>
+      <p class="note">This version uses the iPhone's system clock as its current UTC timestamp and calculates elapsed SI time from the epoch. It is a local-device chronometer, not a synchronized Galactic Reference Frame. Device clock accuracy, leap-second handling, and relativistic corrections are not independently supplied by this prototype. Reopen the app to refresh after iOS suspends it.</p>
+    </section>
+    <section class="panel">
+      <strong>Next planned capabilities</strong>
+      <p class="note">Mission events, reminders, date conversion, a home-screen installation, and later a native iOS widget.</p>
+    </section>
+  </main>
+  <footer class="foot">STAR RUNNER GALACTIC STANDARD · SRGS 1.0</footer>
+</div>
+<script>
+(()=>{
+ const epoch=Date.UTC(1968,11,21,12,51,0),cycleSeconds=100000;
+ const $=id=>document.getElementById(id),pad=(n,w=2)=>String(n).padStart(w,'0');
+ let previousCycle=-1;
+ function update(){
+   const now=Date.now(),elapsed=Math.max(0,(now-epoch)/1000);
+   const totalCycles=Math.floor(elapsed/cycleSeconds);
+   const block=Math.floor(totalCycles/10000);
+   const group=Math.floor((totalCycles%10000)/100);
+   const cycle=totalCycles%100;
+   const within=elapsed%cycleSeconds;
+   const interval=Math.floor(within/10000);
+   const segment=Math.floor((within%10000)/100);
+   const unit=Math.floor(within%100);
+   const tick=Math.floor((within-Math.floor(within))*100);
+   const sd=`${pad(block,3)}.${pad(group)}.${pad(cycle)}`;
+   const gst=`${pad(interval)}.${pad(segment)}.${pad(unit)}.${pad(tick)}`;
+   $('stardate').textContent=sd;$('gst').textContent=gst;
+   $('block').textContent=pad(block,3);$('group').textContent=pad(group);$('cycle').textContent=pad(cycle);
+   $('elapsed').textContent=Math.floor(elapsed).toLocaleString('en-US');
+   const pct=within/cycleSeconds*100;$('pct').textContent=pct.toFixed(2)+'%';$('progress').style.width=pct+'%';
+   const d=new Date(now);
+   $('earthdate').textContent=d.toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric',timeZone:'UTC'});
+   $('earthtime').textContent=d.toISOString().slice(11,23)+' UTC';
+   $('caldate').textContent=sd;$('calblock').textContent=pad(block,3);$('calgroup').textContent=pad(group);$('calcycle').textContent=pad(cycle);
+   if(previousCycle!==totalCycles){
+     const grid=$('cyclegrid');grid.replaceChildren();
+     for(let i=0;i<100;i++){const cell=document.createElement('div');cell.className='cell'+(i===cycle?' current':i<cycle?' past':'');cell.textContent=pad(i);cell.setAttribute('aria-label',`Cycle ${i}${i===cycle?', current':i<cycle?', completed':', upcoming'}`);grid.appendChild(cell)}
+     $('gridlabel').textContent='Group '+pad(group);previousCycle=totalCycles;
+   }
+ }
+ document.querySelectorAll('nav button').forEach(button=>button.addEventListener('click',()=>{
+   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b===button));
+   ['clock','calendar','system'].forEach(name=>$(name+'-view').classList.toggle('hidden',name!==button.dataset.view));
+ }));
+ update();setInterval(update,50);document.addEventListener('visibilitychange',()=>{if(!document.hidden)update()});
+})();
+</script>
+</body>
+</html>
