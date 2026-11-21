@@ -275,7 +275,7 @@
  initMissionControl();
  update();
  let updateTimer;
- function scheduleClock(){clearTimeout(updateTimer);const delay=1000-(Date.now()%1000);updateTimer=setTimeout(()=>{update();renderMissionCountdowns();scheduleClock()},delay)}
+ function scheduleClock(){clearTimeout(updateTimer);const delay=50-(Date.now()%50);updateTimer=setTimeout(()=>{update();renderMissionCountdowns();scheduleClock()},delay)}
  scheduleClock();
  document.addEventListener('visibilitychange',()=>{if(!document.hidden){update();renderMissionCountdowns();if(window.sr23Registration)window.sr23Registration.update().catch(()=>{})}});
  window.addEventListener('pageshow',()=>{update();renderMissionCountdowns()});
