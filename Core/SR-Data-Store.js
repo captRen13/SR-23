@@ -307,7 +307,10 @@
         await done;
       } catch (error) {
         if (conflict) {
-          throw new Error("MISSION CONFLICT: " + conflict.id + " changed after it was loaded. Conflicting fields: " + conflict.fields.join(", ") + ". Reload the mission and review the latest values before retrying.");
+          const conflictError = new Error("MISSION CONFLICT: " + conflict.id + " changed after it was loaded. Conflicting fields: " + conflict.fields.join(", ") + ". Reload the mission and review the latest values before retrying.");
+          conflictError.missionId = conflict.id;
+          conflictError.conflictFields = conflict.fields.slice();
+          throw conflictError;
         }
         throw error;
       }
