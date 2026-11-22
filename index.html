@@ -281,7 +281,7 @@
     throw new Error("Export event count does not match its event records. No missions were imported.");
    }
    const importedAt=new Date().toISOString();
-   const batchIds=new Set();
+   const batchIds=new Map();
    const imported=payload.events.map((event,index)=>{
     if(!event||typeof event.calendarIdentifier!=="string"||!event.calendarIdentifier||typeof event.sourceEventIdentifier!=="string"||!event.sourceEventIdentifier){
      throw new Error("Event "+(index+1)+" is missing its source calendar or event identifier.");
@@ -294,8 +294,12 @@
     // CalendarKit may reuse an event identifier for every occurrence in a recurring series.
     // Include the occurrence start time so each scheduled instance gets its own stable mission ID.
     const id="apple-calendar::"+event.calendarIdentifier+"::"+event.sourceEventIdentifier+"::"+departure.toISOString();
-    if(batchIds.has(id))throw new Error("The export contains a duplicate event identifier. No missions were imported.");
-    batchIds.add(id);
+    if(batchIds.has(id)){
+     const previous=batchIds.get(id);
+     const currentTitle=String(event.title||"Untitled Event");
+     throw new Error("Duplicate calendar occurrence detected. Record "+(index+1)+" (“"+currentTitle+"”, "+departure.toLocaleString()+", "+String(event.calendarTitle||"Calendar")+") matches record "+(previous.index+1)+" (“"+previous.title+"”, "+previous.start+", "+previous.calendar+"). No missions were imported.");
+    }
+    batchIds.set(id,{index,title:String(event.title||"Untitled Event"),start:departure.toLocaleString(),calendar:String(event.calendarTitle||"Calendar")});
     const existing=missions.find(m=>m.id===id);
     return {
      id,
