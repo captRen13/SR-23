@@ -321,7 +321,7 @@
                 !Number.isFinite(Date.parse(record.departure))) {
               errors.push(label + " has an invalid departure date.");
             }
-            const allowedStatuses = ["PLANNED", "ACTIVE", "ON HOLD", "COMPLETED", "ABORTED"];
+            const allowedStatuses = ["PLANNED", "ACTIVE", "ON HOLD", "COMPLETE", "COMPLETED", "ABORTED"];
             if (record.status === undefined || record.status === null || record.status === "") {
               warnings.push(label + " has no mission status.");
             } else if (typeof record.status !== "string" || !allowedStatuses.includes(record.status)) {
