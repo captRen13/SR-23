@@ -274,20 +274,23 @@
       const id=conflictButton.dataset.conflictId,action=conflictButton.dataset.conflictAction,conflict=missionConflicts.get(id);
       if(!conflict)return;
       if(action==="keep-current"){missionConflicts.delete(id);missionConflictIds.delete(id);$("mission-error").textContent="Conflict resolved. The latest saved mission was retained."; $("mission-error").classList.remove("conflict-warning");renderMissions();return}
-      if(action==="apply-attempted"){
+      if(action==="apply-merge"){
+       const panel=conflictButton.closest("section.result"),choices={};
+       panel.querySelectorAll("[data-merge-field]").forEach(input=>{choices[input.dataset.mergeField]=input.value});
+       const merged=buildMissionMerge(conflict,choices);
        conflictButton.disabled=true;
        try{
-        await StarRunnerDataStore.putMissionIfUnchanged(conflict.attempted,conflict.current,{actor:"user"});
+        await StarRunnerDataStore.putMissionIfUnchanged(merged,conflict.current,{actor:"user"});
         missions=await StarRunnerDataStore.getAll("missions");missionConflicts.delete(id);missionConflictIds.delete(id);
-        $("mission-error").textContent="Your version was applied. The resolution is recorded in mission history.";$("mission-error").classList.remove("conflict-warning");renderMissions();
+        $("mission-error").textContent="Merged version applied. Non-conflicting changes were preserved, and the resolution is recorded in mission history.";$("mission-error").classList.remove("conflict-warning");renderMissions();
        }catch(error){
         missions=await StarRunnerDataStore.getAll("missions");
         if(error.message.startsWith("MISSION CONFLICT:")){
          const latest=missions.find(x=>x.id===id);
          if(latest){conflict.current=JSON.parse(JSON.stringify(latest));conflict.fields=error.conflictFields||[];missionConflicts.set(id,conflict)}
-         $("mission-error").textContent="⚠ A newer change arrived during resolution. Compare the refreshed versions before trying again.";
+         $("mission-error").textContent="⚠ A newer change arrived during resolution. The comparison has been refreshed; review it again before applying.";
          $("mission-error").classList.add("conflict-warning");
-        }else $("mission-error").textContent="Resolution failed: "+error.message;
+        }else $("mission-error").textContent="Merge failed: "+error.message;
         renderMissions();
        }
        return;
@@ -641,6 +644,22 @@
   }
   return changed.length;
  }
+ function buildMissionMerge(conflict,choices){
+  const base=conflict.base||{},attempted=conflict.attempted||{},current=conflict.current||{};
+  const merged=JSON.parse(JSON.stringify(current));
+  const keys=new Set([...Object.keys(base),...Object.keys(attempted),...Object.keys(current)]);
+  const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+  keys.forEach(field=>{
+   const attemptedChanged=!same(base[field],attempted[field]);
+   const currentChanged=!same(base[field],current[field]);
+   const conflictChanged=attemptedChanged&&currentChanged&&!same(attempted[field],current[field]);
+   if(attemptedChanged&&(!currentChanged||(conflictChanged&&choices[field]==="attempted"))){
+    if(Object.prototype.hasOwnProperty.call(attempted,field))merged[field]=JSON.parse(JSON.stringify(attempted[field]));
+    else delete merged[field];
+   }
+  });
+  return merged;
+ }
  function renderMissions(){
   if(!$('mission-list'))return;
   const list=$('mission-list'),now=Date.now();
@@ -674,15 +693,31 @@
    const conflict=missionConflicts.get(m.id);
    if(conflict){
     const panel=document.createElement("section");panel.className="result conflict-card";panel.style.marginTop="12px";
-    const warning=document.createElement("div");warning.className="conflict-warning";warning.textContent="⚠ MISSION CONFLICT · CHOOSE WHICH VERSION TO KEEP";
-    const intro=document.createElement("p");intro.className="note";intro.textContent="Another tab or source changed this mission after it was loaded. Compare the saved version with your attempted change.";
+    const warning=document.createElement("div");warning.className="conflict-warning";warning.textContent="⚠ MISSION CONFLICT · REVIEW MERGE";
+    const intro=document.createElement("p");intro.className="note";intro.textContent="Changes made to different fields will be combined automatically. For fields changed in both versions, choose which value to keep.";
     const comparison=document.createElement("div");comparison.style.fontSize="12px";comparison.style.lineHeight="1.6";
-    const fields=conflict.fields.length?conflict.fields:["status"];
+    const keys=Array.from(new Set([...Object.keys(conflict.base||{}),...Object.keys(conflict.attempted||{}),...Object.keys(conflict.current||{})])).sort();
+    const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+    const attemptedChanged=field=>!same(conflict.base&&conflict.base[field],conflict.attempted&&conflict.attempted[field]);
+    const currentChanged=field=>!same(conflict.base&&conflict.base[field],conflict.current&&conflict.current[field]);
+    const conflictFields=keys.filter(field=>attemptedChanged(field)&&currentChanged(field)&&!same(conflict.attempted&&conflict.attempted[field],conflict.current&&conflict.current[field]));
+    const automaticFields=keys.filter(field=>attemptedChanged(field)&&!currentChanged(field));
+    const summary=document.createElement("p");summary.className="note";summary.textContent=automaticFields.length+" field(s) from your version will merge automatically; "+conflictFields.length+" field(s) need a choice. Latest-saved values are selected by default.";comparison.appendChild(summary);
     const show=value=>value===undefined||value===null?"—":typeof value==="string"?value:JSON.stringify(value);
-    fields.forEach(field=>{const row=document.createElement("div");row.style.borderTop="1px solid #ef444455";row.style.paddingTop="6px";row.style.marginTop="6px";const name=document.createElement("strong");name.textContent=field.toUpperCase();const saved=document.createElement("div");saved.textContent="LATEST SAVED: "+show(conflict.current[field]);const attempted=document.createElement("div");attempted.textContent="YOUR VERSION: "+show(conflict.attempted[field]);row.append(name,saved,attempted);comparison.appendChild(row)});
+    conflictFields.forEach(field=>{
+     const row=document.createElement("div");row.style.borderTop="1px solid #ef444455";row.style.paddingTop="8px";row.style.marginTop="8px";
+     const name=document.createElement("strong");name.textContent=field.toUpperCase();
+     const saved=document.createElement("div");saved.textContent="LATEST SAVED: "+show(conflict.current[field]);
+     const attempted=document.createElement("div");attempted.textContent="YOUR VERSION: "+show(conflict.attempted[field]);
+     const choice=document.createElement("select");choice.className="field";choice.style.marginTop="6px";choice.dataset.mergeField=field;choice.setAttribute("aria-label","Choose value for "+field);
+     const latestOption=document.createElement("option");latestOption.value="current";latestOption.textContent="Keep Latest Saved";
+     const attemptedOption=document.createElement("option");attemptedOption.value="attempted";attemptedOption.textContent="Use My Version";
+     choice.append(latestOption,attemptedOption);row.append(name,saved,attempted,choice);comparison.appendChild(row);
+    });
+    if(!conflictFields.length){const clean=document.createElement("div");clean.className="note";clean.textContent="No fields were changed differently in both versions. The merge can be applied automatically.";comparison.appendChild(clean)}
     const choices=document.createElement("div");choices.className="btnrow";
     const keep=document.createElement("button");keep.className="action";keep.textContent="Keep Latest Saved";keep.dataset.conflictAction="keep-current";keep.dataset.conflictId=m.id;
-    const apply=document.createElement("button");apply.className="action";apply.textContent="Apply My Version";apply.dataset.conflictAction="apply-attempted";apply.dataset.conflictId=m.id;
+    const apply=document.createElement("button");apply.className="action primary";apply.textContent="Apply Merged Version";apply.dataset.conflictAction="apply-merge";apply.dataset.conflictId=m.id;
     choices.append(keep,apply);panel.append(warning,intro,comparison,choices);card.appendChild(panel);
    }
    list.appendChild(card);
