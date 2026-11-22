@@ -13,7 +13,8 @@ if (!SRGS || typeof SRGS.fromDate !== "function") {
 }
 
 const now = new Date();
-const time = SRGS.fromDate(now);
+// Use the numeric timestamp to avoid cross-module Date instanceof issues in Scriptable.
+const time = SRGS.fromUnixMilliseconds(Date.now());
 const widget = new ListWidget();
 
 const colors = {
