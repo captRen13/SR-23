@@ -149,6 +149,13 @@
           <div style="font-weight:700;margin-top:8px">Import Calendar Events as Missions</div>
           <p class="note">Import a Scriptable Apple Calendar JSON export. Events become mission orders; existing imported events are updated on reimport, while manually created missions remain untouched.</p>
           <div class="btnrow">
+            <button class="action" id="preview-calendar-reconciliation" disabled>Preview Calendar Changes</button>
+            <input id="reconcile-calendar-file" type="file" accept="application/json,.json" class="hidden" aria-label="Choose Apple Calendar export for reconciliation preview">
+          </div>
+          <div class="note" id="reconciliation-status" role="status" style="margin-top:10px">Reconciliation preview will be available when the local data vault is online.</div>
+          <div class="result hidden" id="reconciliation-results" aria-live="polite"></div>
+          <div class="rule"></div>
+          <div class="btnrow">
             <button class="action primary" id="import-apple-calendar" disabled>Import Calendar Missions</button>
             <input id="apple-calendar-file" type="file" accept="application/json,.json" class="hidden" aria-label="Choose Apple Calendar export">
           </div>
@@ -234,6 +241,7 @@
    $("choose-backup").disabled=false;
    $("verify-vault").disabled=false;
    $("import-apple-calendar").disabled=false;
+   $("preview-calendar-reconciliation").disabled=false;
    $("backup-status").textContent="Data vault online. Backups include vessels, crew, missions, calendar, and system records.";
    if(result.migration.migrated){
     $("mission-error").textContent="Legacy mission records migrated successfully ("+result.migration.count+"). Original backup retained.";
@@ -283,6 +291,118 @@
    $("integrity-status").textContent="INTEGRITY CHECK FAILED: "+error.message;
   }finally{button.disabled=!missionStorageReady}
  }
+  function calendarOccurrenceId(event){
+   const departure=new Date(event.startDate);
+   return "apple-calendar::"+event.calendarIdentifier+"::"+event.sourceEventIdentifier+"::"+departure.toISOString();
+  }
+  async function previewCalendarReconciliation(file){
+   if(!file)return;
+   const button=$("preview-calendar-reconciliation");
+   const output=$("reconciliation-results");
+   button.disabled=true;
+   output.classList.add("hidden");
+   $("reconciliation-status").textContent="Comparing the selected calendar export with imported missions. No records will be changed…";
+   try{
+    const payload=JSON.parse(await file.text());
+    if(!payload||payload.format!=="star-runner-apple-calendar"||payload.formatVersion!==1||
+       !Array.isArray(payload.events)||!Array.isArray(payload.selectedCalendars)||
+       !payload.range||typeof payload.range.start!=="string"||typeof payload.range.end!=="string"){
+     throw new Error("This is not a supported calendar export or it is missing its comparison range.");
+    }
+    if(payload.eventCount!==payload.events.length)throw new Error("Export event count does not match its event records.");
+    const rangeStart=new Date(payload.range.start),rangeEnd=new Date(payload.range.end);
+    if(!Number.isFinite(rangeStart.getTime())||!Number.isFinite(rangeEnd.getTime())||rangeEnd<=rangeStart){
+     throw new Error("The export date range is invalid. No comparison was performed.");
+    }
+    const calendarIds=new Set(payload.selectedCalendars.map(c=>c&&String(c.identifier||"")).filter(Boolean));
+    if(!calendarIds.size)throw new Error("The export does not identify any selected calendars.");
+    const incoming=new Map();
+    payload.events.forEach((event,index)=>{
+     if(!event||typeof event.calendarIdentifier!=="string"||!event.calendarIdentifier||
+        typeof event.sourceEventIdentifier!=="string"||!event.sourceEventIdentifier){
+      throw new Error("Event "+(index+1)+" is missing its source identifiers.");
+     }
+     const start=new Date(event.startDate),end=new Date(event.endDate);
+     if(!Number.isFinite(start.getTime())||!Number.isFinite(end.getTime())||end<start){
+      throw new Error("Event "+(index+1)+" has an invalid date range.");
+     }
+     const id=calendarOccurrenceId(event);
+     if(incoming.has(id))throw new Error("Duplicate event occurrence in export: "+String(event.title||"Untitled Event"));
+     incoming.set(id,event);
+    });
+    const importedMissions=missions.filter(m=>m.source==="apple-calendar"&&
+     calendarIds.has(String(m.sourceCalendarIdentifier||""))&&
+     Number.isFinite(Date.parse(m.departure))&&
+     Date.parse(m.departure)>=rangeStart.getTime()&&Date.parse(m.departure)<rangeEnd.getTime());
+    const existingById=new Map(importedMissions.map(m=>[m.id,m]));
+    const added=[],changed=[],unchanged=[];
+    incoming.forEach((event,id)=>{
+     const existing=existingById.get(id);
+     if(!existing){added.push(event);return}
+     const fields=[
+      [existing.title,String(event.title||"Untitled Event").trim()||"Untitled Event"],
+      [existing.destination,String(event.location||"")],
+      [existing.objective,String(event.notes||"")],
+      [existing.departure,new Date(event.startDate).toISOString()],
+      [existing.sourceEndDate,new Date(event.endDate).toISOString()],
+      [existing.sourceTimeZone||null,event.timeZone||null],
+      [Boolean(existing.isAllDay),Boolean(event.isAllDay)],
+      [existing.sourceAvailability||null,event.availability||null]
+     ];
+     if(fields.some(pair=>pair[0]!==pair[1]))changed.push(event);
+     else unchanged.push(event);
+    });
+    const missing=importedMissions.filter(m=>!incoming.has(m.id));
+    const names=payload.selectedCalendars.map(c=>String(c.title||"")).filter(Boolean).join(", ");
+    output.replaceChildren();
+    const heading=document.createElement("div");heading.className="label";heading.textContent="RECONCILIATION PREVIEW · READ ONLY";
+    const summary=document.createElement("p");summary.className="note";
+    summary.textContent="Compared "+payload.events.length+" exported event(s) against "+importedMissions.length+
+     " previously imported mission(s) in the overlapping date range. Calendars: "+(names||"selected calendars")+".";
+    const counts=document.createElement("div");counts.className="grid";
+    [["NEW",added.length],["CHANGED",changed.length],["MISSING",missing.length],["UNCHANGED",unchanged.length]].forEach(item=>{
+     const cell=document.createElement("div");cell.className="metric";
+     const key=document.createElement("div");key.className="k";key.textContent=item[0];
+     const value=document.createElement("div");value.className="v";value.textContent=String(item[1]);
+     cell.append(key,value);counts.appendChild(cell);
+    });
+    output.append(heading,summary,counts);
+    if(missing.length){
+     const note=document.createElement("p");note.className="note";
+     note.textContent="MISSING CANDIDATES — not found in this export. This may indicate cancellation, deletion, rescheduling, or a change in calendar selection:";
+     output.appendChild(note);
+     missing.slice(0,12).forEach(m=>{
+      const item=document.createElement("div");item.className="mission-meta";
+      item.textContent="• "+m.title+" · "+new Date(m.departure).toLocaleString()+" · "+String(m.sourceCalendarTitle||"Calendar");
+      output.appendChild(item);
+     });
+     if(missing.length>12){const more=document.createElement("div");more.className="mission-meta";more.textContent="And "+(missing.length-12)+" more.";output.appendChild(more)}
+    }
+    if(changed.length){
+     const note=document.createElement("p");note.className="note";note.textContent="CHANGED EVENTS — matching occurrence IDs with updated details:";
+     output.appendChild(note);
+     changed.slice(0,12).forEach(event=>{
+      const item=document.createElement("div");item.className="mission-meta";
+      item.textContent="• "+String(event.title||"Untitled Event")+" · "+new Date(event.startDate).toLocaleString();
+      output.appendChild(item);
+     });
+    }
+    if(!missing.length&&!changed.length&&!added.length){
+     const note=document.createElement("p");note.className="note";note.textContent="No calendar differences detected in this export range.";
+     output.appendChild(note);
+    }
+    const safety=document.createElement("p");safety.className="note";
+    safety.textContent="PREVIEW ONLY. No missions were added, updated, cancelled, or deleted. Missing items require manual review; this comparison cannot prove why an event is absent.";
+    output.appendChild(safety);
+    output.classList.remove("hidden");
+    $("reconciliation-status").textContent="Preview complete. Review the results below; the Mission Register is unchanged.";
+   }catch(error){
+    $("reconciliation-status").textContent="PREVIEW FAILED: "+error.message;
+   }finally{
+    button.disabled=!missionStorageReady;
+    $("reconcile-calendar-file").value="";
+   }
+  }
   async function importAppleCalendarFile(file){
   if(!file)return;
   const button=$("import-apple-calendar");
@@ -385,6 +505,8 @@
   }catch(error){$("backup-status").textContent="RESTORE FAILED: "+error.message+". Current records were not intentionally changed."}
   finally{$("choose-backup").disabled=!missionStorageReady;$("backup-file").value=""}
  }
+ $("preview-calendar-reconciliation").addEventListener("click",()=>$("reconcile-calendar-file").click());
+ $("reconcile-calendar-file").addEventListener("change",event=>previewCalendarReconciliation(event.target.files&&event.target.files[0]));
  $("import-apple-calendar").addEventListener("click",()=>$("apple-calendar-file").click());
  $("apple-calendar-file").addEventListener("change",event=>importAppleCalendarFile(event.target.files&&event.target.files[0]));
  $("verify-vault").addEventListener("click",runIntegrityCheck);
