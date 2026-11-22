@@ -211,7 +211,7 @@
   <footer class="foot">STAR RUNNER 2.1 · GALACTIC STANDARD SRGS 1.0</footer>
 </div>
 <script src="./Core/SRGS-Core.js"></script>
-<script src="./Core/SR-Data-Store.js?v=1.0.4"></script>
+<script src="./Core/SR-Data-Store.js?v=1.0.5"></script>
 <script>
 (()=>{
  'use strict';
@@ -261,9 +261,9 @@
     if(!e.target.matches("[data-status-id]"))return;
     const m=missions.find(x=>x.id===e.target.dataset.statusId);
     if(!m)return;
-    const previous=m.status,previousOrigin=m.statusOrigin,previousUpdatedAt=m.statusUpdatedAt;
+    const snapshot=JSON.parse(JSON.stringify(m)),previous=m.status,previousOrigin=m.statusOrigin,previousUpdatedAt=m.statusUpdatedAt;
     m.status=e.target.value;m.statusOrigin="user";m.statusUpdatedAt=new Date().toISOString();
-    try{await StarRunnerDataStore.putMission(m,{actor:"user"});renderMissions()}
+    try{await StarRunnerDataStore.putMissionIfUnchanged(m,snapshot,{actor:"user"});renderMissions()}
     catch(error){m.status=previous;m.statusOrigin=previousOrigin;m.statusUpdatedAt=previousUpdatedAt;renderMissions();$("mission-error").textContent="Status update failed: "+error.message}
    });
    $("mission-list").addEventListener("click",async e=>{
@@ -301,7 +301,7 @@
      if(!button)return;
      const m=missions.find(x=>x.id===button.dataset.deleteId);
      if(!m||!confirm('Delete mission "'+m.title+'"?'))return;
-     try{await StarRunnerDataStore.removeMission(m.id,{actor:"user"});missions=missions.filter(x=>x.id!==m.id);renderMissions()}
+     try{await StarRunnerDataStore.removeMissionIfUnchanged(m.id,m,{actor:"user"});missions=missions.filter(x=>x.id!==m.id);renderMissions()}
      catch(error){$("mission-error").textContent="Mission deletion failed: "+error.message}
     });
    renderMissions();
@@ -383,7 +383,7 @@
    if(action==="abort"){
     const mission=entry.mission;
     if(!confirm("Mark this imported mission ABORTED?\n\n"+mission.title+"\n"+new Date(mission.departure).toLocaleString()+"\n"+mission.sourceCalendarTitle+"\n\nThe mission will remain in the register and can be changed later."))return;
-    await StarRunnerDataStore.putMission({...mission,status:"ABORTED",statusOrigin:"user",statusUpdatedAt:new Date().toISOString()},{actor:"user"});
+    await StarRunnerDataStore.putMissionIfUnchanged({...mission,status:"ABORTED",statusOrigin:"user",statusUpdatedAt:new Date().toISOString()},mission,{actor:"user"});
     entry.resolved=true;entry.resolution="Mission marked ABORTED.";
    }else{
     const mission=type==="changed"?entry.mission:null;
@@ -399,7 +399,7 @@
      sourceCalendarTitle:String(event.calendarTitle||""),sourceEndDate:endDate.toISOString(),sourceTimeZone:event.timeZone||null,
      isAllDay:Boolean(event.isAllDay),sourceAvailability:event.availability||null,importedAt:new Date().toISOString()
     };
-    await StarRunnerDataStore.putMission(record,{actor:"apple-calendar"});
+    if(mission)await StarRunnerDataStore.putMissionIfUnchanged(record,mission,{actor:"apple-calendar"});else await StarRunnerDataStore.putMission(record,{actor:"apple-calendar"});
     entry.resolved=true;entry.resolution=action==="import"?"Imported as a mission.":"Calendar update applied; mission status preserved.";
    }
    missions=await StarRunnerDataStore.getAll("missions");renderMissions();renderReconciliationResults();
