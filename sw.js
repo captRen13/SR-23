@@ -1,5 +1,5 @@
 const CACHE_PREFIX='star-runner-';
-const CACHE_VERSION='2.7.0';
+const CACHE_VERSION='2.8.0';
 const CACHE=CACHE_PREFIX+CACHE_VERSION;
 const APP_SHELL=['./','./index.html','./manifest.json','./Core/SRGS-Core.js','./Core/SR-Data-Store.js?v=1.0.2','./icon-192.png','./icon-512.png'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(APP_SHELL))));
