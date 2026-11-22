@@ -261,10 +261,10 @@
     if(!e.target.matches("[data-status-id]"))return;
     const m=missions.find(x=>x.id===e.target.dataset.statusId);
     if(!m)return;
-    const previous=m.status;
-    m.status=e.target.value;
+    const previous=m.status,previousOrigin=m.statusOrigin,previousUpdatedAt=m.statusUpdatedAt;
+    m.status=e.target.value;m.statusOrigin="user";m.statusUpdatedAt=new Date().toISOString();
     try{await StarRunnerDataStore.put("missions",m);renderMissions()}
-    catch(error){m.status=previous;renderMissions();$("mission-error").textContent="Status update failed: "+error.message}
+    catch(error){m.status=previous;m.statusOrigin=previousOrigin;m.statusUpdatedAt=previousUpdatedAt;renderMissions();$("mission-error").textContent="Status update failed: "+error.message}
    });
    $("mission-list").addEventListener("click",async e=>{
     const button=e.target.closest("[data-delete-id]");
@@ -353,7 +353,7 @@
    if(action==="abort"){
     const mission=entry.mission;
     if(!confirm("Mark this imported mission ABORTED?\n\n"+mission.title+"\n"+new Date(mission.departure).toLocaleString()+"\n"+mission.sourceCalendarTitle+"\n\nThe mission will remain in the register and can be changed later."))return;
-    await StarRunnerDataStore.put("missions",{...mission,status:"ABORTED"});
+    await StarRunnerDataStore.put("missions",{...mission,status:"ABORTED",statusOrigin:"user",statusUpdatedAt:new Date().toISOString()});
     entry.resolved=true;entry.resolution="Mission marked ABORTED.";
    }else{
     const mission=type==="changed"?entry.mission:null;
@@ -363,6 +363,7 @@
     const record={
      id:calendarOccurrenceId(event),title,destination:String(event.location||""),departure:departure.toISOString(),
      objective:String(event.notes||""),status:mission?mission.status:calendarMissionStatus({status:"PLANNED",departure:departure.toISOString(),sourceEndDate:endDate.toISOString()},Date.now()),
+     statusOrigin:mission?(mission.statusOrigin||"legacy"):"schedule",statusUpdatedAt:mission&&mission.statusUpdatedAt?mission.statusUpdatedAt:new Date().toISOString(),
      createdAt:mission&&mission.createdAt?mission.createdAt:new Date().toISOString(),source:"apple-calendar",
      sourceEventIdentifier:event.sourceEventIdentifier,sourceCalendarIdentifier:event.calendarIdentifier,
      sourceCalendarTitle:String(event.calendarTitle||""),sourceEndDate:endDate.toISOString(),sourceTimeZone:event.timeZone||null,
@@ -461,7 +462,8 @@
      destination:String(event.location||""),
      departure:departure.toISOString(),
      objective:String(event.notes||""),
-     status:existing&&existing.status==="ABORTED"?"ABORTED":calendarMissionStatus({status:"ACTIVE",departure:departure.toISOString(),sourceEndDate:endDate.toISOString()},Date.now()),
+     status:existing?existing.status:calendarMissionStatus({status:"ACTIVE",departure:departure.toISOString(),sourceEndDate:endDate.toISOString()},Date.now()),
+     statusOrigin:existing?(existing.statusOrigin||"legacy"):"schedule",statusUpdatedAt:existing&&existing.statusUpdatedAt?existing.statusUpdatedAt:importedAt,
      createdAt:existing&&existing.createdAt?existing.createdAt:importedAt,
      source:"apple-calendar",
      sourceEventIdentifier:event.sourceEventIdentifier,
@@ -571,9 +573,9 @@
  async function refreshCalendarMissionStatuses(){
   const now=Date.now(),changed=[];
   missions.forEach(m=>{
-   if(m.source!=="apple-calendar")return;
+   if(m.source!=="apple-calendar"||m.statusOrigin!=="schedule")return;
    const next=calendarMissionStatus(m,now);
-   if(m.status!==next){m.status=next;changed.push(m)}
+   if(m.status!==next){m.status=next;m.statusUpdatedAt=new Date(now).toISOString();changed.push(m)}
   });
   if(changed.length)await StarRunnerDataStore.putMany("missions",changed);
   return changed.length;
