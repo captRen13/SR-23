@@ -303,9 +303,7 @@
      if(!m||!confirm('Delete mission "'+m.title+'"?'))return;
      try{await StarRunnerDataStore.removeMission(m.id,{actor:"user"});missions=missions.filter(x=>x.id!==m.id);renderMissions()}
      catch(error){$("mission-error").textContent="Mission deletion failed: "+error.message}
-    });missions=missions.filter(x=>x.id!==m.id);renderMissions()}
-    catch(error){$("mission-error").textContent="Mission deletion failed: "+error.message}
-   });
+    });
    renderMissions();
   }catch(error){showMissionStorageError(error)}
  }
