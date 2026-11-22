@@ -211,7 +211,7 @@
   <footer class="foot">STAR RUNNER 2.1 · GALACTIC STANDARD SRGS 1.0</footer>
 </div>
 <script src="./Core/SRGS-Core.js"></script>
-<script src="./Core/SR-Data-Store.js?v=1.0.5"></script>
+<script src="./Core/SR-Data-Store.js?v=1.0.6"></script>
 <script>
 (()=>{
  'use strict';
@@ -466,7 +466,7 @@
     throw new Error("Export event count does not match its event records. No missions were imported.");
    }
    const importedAt=new Date().toISOString();
-   const batchIds=new Map();
+   const batchIds=new Map(),expectedMissions={};
    const imported=payload.events.map((event,index)=>{
     if(!event||typeof event.calendarIdentifier!=="string"||!event.calendarIdentifier||typeof event.sourceEventIdentifier!=="string"||!event.sourceEventIdentifier){
      throw new Error("Event "+(index+1)+" is missing its source calendar or event identifier.");
@@ -486,6 +486,7 @@
     }
     batchIds.set(id,{index,title:String(event.title||"Untitled Event"),start:departure.toLocaleString(),calendar:String(event.calendarTitle||"Calendar")});
     const existing=missions.find(m=>m.id===id);
+    expectedMissions[id]=existing||null;
     return {
      id,
      title:String(event.title||"Untitled Event").trim()||"Untitled Event",
@@ -509,7 +510,7 @@
    const existingIds=new Set(missions.map(m=>m.id));
    const updated=imported.filter(m=>existingIds.has(m.id)).length;
    const added=imported.length-updated;
-   await StarRunnerDataStore.putMissions(imported,{actor:"apple-calendar"});
+   await StarRunnerDataStore.putMissionsIfUnchanged(imported,expectedMissions,{actor:"apple-calendar"});
    missions=await StarRunnerDataStore.getAll("missions");
    await refreshCalendarMissionStatuses();
    missionPage=0;
@@ -601,13 +602,16 @@
   return departureCycle>currentCycle?"PLANNED":"ACTIVE";
  }
  async function refreshCalendarMissionStatuses(){
-  const now=Date.now(),changed=[];
+  const now=Date.now(),changed=[],expected={};
   missions.forEach(m=>{
    if(m.source!=="apple-calendar"||m.statusOrigin!=="schedule")return;
    const next=calendarMissionStatus(m,now);
-   if(m.status!==next){m.status=next;m.statusUpdatedAt=new Date(now).toISOString();changed.push(m)}
+   if(m.status!==next){expected[m.id]=JSON.parse(JSON.stringify(m));m.status=next;m.statusUpdatedAt=new Date(now).toISOString();changed.push(m)}
   });
-  if(changed.length)await StarRunnerDataStore.putMissions(changed,{actor:"scheduler"});
+  if(changed.length){
+   try{await StarRunnerDataStore.putMissionsIfUnchanged(changed,expected,{actor:"scheduler"})}
+   catch(error){missions=await StarRunnerDataStore.getAll("missions");renderMissions();throw error}
+  }
   return changed.length;
  }
  function renderMissions(){
