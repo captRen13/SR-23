@@ -403,8 +403,9 @@
     if(mission)await StarRunnerDataStore.putMissionIfUnchanged(record,mission,{actor:"apple-calendar"});else await StarRunnerDataStore.putMission(record,{actor:"apple-calendar"});
     entry.resolved=true;entry.resolution=action==="import"?"Imported as a mission.":"Calendar update applied; mission status preserved.";
    }
+   if(entry.mission){missionConflictIds.delete(entry.mission.id);entry.conflict=false}
    missions=await StarRunnerDataStore.getAll("missions");renderMissions();renderReconciliationResults();
-   $("reconciliation-status").textContent="Action applied. Review the remaining calendar differences below.";
+   $("reconciliation-status").textContent="Action applied. Review the remaining calendar differences below.";$("reconciliation-status").classList.remove("conflict-warning");
   }
   async function previewCalendarReconciliation(file){
    if(!file)return;
