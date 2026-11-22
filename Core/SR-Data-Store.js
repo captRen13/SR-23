@@ -334,6 +334,18 @@
     return record;
   }
 
+  async function putMissionsIfUnchanged(records, expectedRecords, options) {
+    const settings = Object.assign({}, options || {});
+    settings.expectedRecords = {};
+    records.forEach(function (record) {
+      if (!expectedRecords || !Object.prototype.hasOwnProperty.call(expectedRecords, record.id)) {
+        throw new Error("Missing expected mission snapshot for " + record.id + ".");
+      }
+      settings.expectedRecords[record.id] = cloneRecord(expectedRecords[record.id]);
+    });
+    return writeMissionRecords(records, settings, false);
+  }
+
   async function removeMissionIfUnchanged(id, expectedRecord, options) {
     if (typeof id !== "string" || !id) throw new TypeError("A mission ID is required.");
     if (!expectedRecord || expectedRecord.id !== id) throw new TypeError("A matching mission snapshot is required.");
@@ -532,6 +544,7 @@
     putMission: putMission,
     putMissions: putMissions,
     putMissionIfUnchanged: putMissionIfUnchanged,
+    putMissionsIfUnchanged: putMissionsIfUnchanged,
     removeMissionIfUnchanged: removeMissionIfUnchanged,
     getMissionHistory: getMissionHistory,
     removeMission: removeMission,
