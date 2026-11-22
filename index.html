@@ -291,7 +291,9 @@
      throw new Error("Event "+(index+1)+" has an invalid start or end time.");
     }
     if(departure.getTime()<EPOCH)throw new Error("Event "+(index+1)+" predates Galactic Epoch 000 and cannot be imported.");
-    // CalendarKit may reuse an event identifier for every occurrence in a recurring series.\n    // Include the occurrence start time so each scheduled instance gets its own stable mission ID.\n    const id="apple-calendar::"+event.calendarIdentifier+"::"+event.sourceEventIdentifier+"::"+departure.toISOString();
+    // CalendarKit may reuse an event identifier for every occurrence in a recurring series.
+    // Include the occurrence start time so each scheduled instance gets its own stable mission ID.
+    const id="apple-calendar::"+event.calendarIdentifier+"::"+event.sourceEventIdentifier+"::"+departure.toISOString();
     if(batchIds.has(id))throw new Error("The export contains a duplicate event identifier. No missions were imported.");
     batchIds.add(id);
     const existing=missions.find(m=>m.id===id);
