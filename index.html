@@ -140,6 +140,8 @@
         <button class="action" id="choose-backup" disabled>Restore from File</button>
         <input id="backup-file" type="file" accept="application/json,.json" class="hidden" aria-label="Choose Star Runner backup file">
       </div>
+      <div class="btnrow"><button class="action" id="verify-vault" disabled>Verify Vault Integrity</button></div>
+      <div class="note" id="integrity-status" role="status" style="margin-top:10px">Integrity check will be available when the local data vault is online.</div>
       <div class="note" id="backup-status" role="status" style="margin-top:10px">Backup tools will be available when the local data vault is online.</div>
     </section>
   </main>
@@ -206,6 +208,7 @@
    $("create-mission").disabled=false;
    $("export-backup").disabled=false;
    $("choose-backup").disabled=false;
+   $("verify-vault").disabled=false;
    $("backup-status").textContent="Data vault online. Backups include vessels, crew, missions, calendar, and system records.";
    if(result.migration.migrated){
     $("mission-error").textContent="Legacy mission records migrated successfully ("+result.migration.count+"). Original backup retained.";
@@ -236,6 +239,24 @@
    });
    renderMissions();
   }catch(error){showMissionStorageError(error)}
+ }
+ async function runIntegrityCheck(){
+  const button=$("verify-vault");button.disabled=true;
+  $("integrity-status").textContent="Inspecting local records without modifying them…";
+  try{
+   const report=await StarRunnerDataStore.audit();
+   const counts=Object.keys(report.counts).map(name=>name+": "+report.counts[name]).join(" · ");
+   if(report.errors.length){
+    $("integrity-status").textContent="INTEGRITY ISSUES FOUND — "+report.errors.length+" error(s). "+report.errors.slice(0,3).join(" ");
+    if(report.errors.length>3)$("integrity-status").textContent+=" Additional issues: "+(report.errors.length-3)+".";
+   }else if(report.warnings.length){
+    $("integrity-status").textContent="VAULT OPERATIONAL WITH "+report.warnings.length+" warning(s). "+report.warnings.slice(0,3).join(" ")+" Records — "+counts+".";
+   }else{
+    $("integrity-status").textContent="VAULT INTEGRITY VERIFIED. No structural issues found. Records — "+counts+".";
+   }
+  }catch(error){
+   $("integrity-status").textContent="INTEGRITY CHECK FAILED: "+error.message;
+  }finally{button.disabled=!missionStorageReady}
  }
  async function exportBackup(){
   const button=$("export-backup");button.disabled=true;
@@ -271,6 +292,7 @@
   }catch(error){$("backup-status").textContent="RESTORE FAILED: "+error.message+". Current records were not intentionally changed."}
   finally{$("choose-backup").disabled=!missionStorageReady;$("backup-file").value=""}
  }
+ $("verify-vault").addEventListener("click",runIntegrityCheck);
  $("export-backup").addEventListener("click",exportBackup);
  $("choose-backup").addEventListener("click",()=>$("backup-file").click());
  $("backup-file").addEventListener("change",event=>restoreBackupFile(event.target.files&&event.target.files[0]));
