@@ -445,7 +445,7 @@
      destination:String(event.location||""),
      departure:departure.toISOString(),
      objective:String(event.notes||""),
-     status:existing&&existing.status==="ABORTED"?"ABORTED":(endDate.getTime()<=Date.now()?"COMPLETE":"ACTIVE"),
+     status:existing&&existing.status==="ABORTED"?"ABORTED":calendarMissionStatus({status:"ACTIVE",departure:departure.toISOString(),sourceEndDate:endDate.toISOString()},Date.now()),
      createdAt:existing&&existing.createdAt?existing.createdAt:importedAt,
      source:"apple-calendar",
      sourceEventIdentifier:event.sourceEventIdentifier,
@@ -544,7 +544,12 @@
  function calendarMissionStatus(m,now){
   if(m.status==="ABORTED")return "ABORTED";
   const end=Date.parse(m.sourceEndDate||m.departure);
-  return Number.isFinite(end)&&end<=now?"COMPLETE":"ACTIVE";
+  if(Number.isFinite(end)&&end<=now)return "COMPLETE";
+  const departure=Date.parse(m.departure);
+  if(!Number.isFinite(departure))return m.status||"PLANNED";
+  const currentCycle=Math.floor((now-EPOCH)/CYCLE_MS);
+  const departureCycle=Math.floor((departure-EPOCH)/CYCLE_MS);
+  return departureCycle>currentCycle?"PLANNED":"ACTIVE";
  }
  async function refreshCalendarMissionStatuses(){
   const now=Date.now(),changed=[];
@@ -583,7 +588,7 @@
    const countdown=document.createElement('div');countdown.className='mission-countdown';countdown.dataset.countdown=m.id;countdown.textContent=formatDuration(date.getTime()-Date.now());
    const actions=document.createElement('div');actions.className='mission-actions';
    const select=document.createElement('select');select.className='field';select.setAttribute('aria-label','Mission status');select.dataset.statusId=m.id;
-   const statusOptions=m.source==="apple-calendar"?["ACTIVE","COMPLETE","ABORTED"]:["PLANNED","ACTIVE","ON HOLD","COMPLETE","COMPLETED","ABORTED"];
+   const statusOptions=m.source==="apple-calendar"?["PLANNED","ACTIVE","COMPLETE","ABORTED"]:["PLANNED","ACTIVE","ON HOLD","COMPLETE","COMPLETED","ABORTED"];
    for(const status of statusOptions){const option=document.createElement('option');option.value=status;option.textContent=status;option.selected=m.status===status;select.appendChild(option)}
    const del=document.createElement('button');del.className='action';del.textContent='Delete';del.dataset.deleteId=m.id;actions.append(select,del);card.append(top,meta,objective,countdown,actions);list.appendChild(card);
   }
