@@ -226,6 +226,7 @@
  let pendingCalendarReconciliation=null;
  let missionPage=0;
  let missionConflictIds=new Set();
+ let missionConflicts=new Map();
  let missionStorageReady=false;
  function showMissionStorageError(error){
   missionStorageReady=false;
@@ -265,9 +266,33 @@
     const snapshot=JSON.parse(JSON.stringify(m)),previous=m.status,previousOrigin=m.statusOrigin,previousUpdatedAt=m.statusUpdatedAt;
     m.status=e.target.value;m.statusOrigin="user";m.statusUpdatedAt=new Date().toISOString();
     try{await StarRunnerDataStore.putMissionIfUnchanged(m,snapshot,{actor:"user"});missionConflictIds.delete(m.id);$("mission-error").textContent="";$("mission-error").classList.remove("conflict-warning");renderMissions()}
-    catch(error){m.status=previous;m.statusOrigin=previousOrigin;m.statusUpdatedAt=previousUpdatedAt;if(error.message.startsWith("MISSION CONFLICT:")){if(error.missionId)missionConflictIds.add(error.missionId);missions=await StarRunnerDataStore.getAll("missions")}renderMissions();$("mission-error").textContent=error.message.startsWith("MISSION CONFLICT:")?"⚠ CONFLICT DETECTED — "+error.message:"Status update failed: "+error.message;$("mission-error").classList.toggle("conflict-warning",error.message.startsWith("MISSION CONFLICT:"))}
+    catch(error){const attempted=JSON.parse(JSON.stringify(m));m.status=previous;m.statusOrigin=previousOrigin;m.statusUpdatedAt=previousUpdatedAt;if(error.message.startsWith("MISSION CONFLICT:")){if(error.missionId){missionConflictIds.add(error.missionId);missions=await StarRunnerDataStore.getAll("missions");const current=missions.find(x=>x.id===error.missionId);if(current)missionConflicts.set(error.missionId,{base:snapshot,attempted,current:JSON.parse(JSON.stringify(current)),fields:error.conflictFields||[]})}}renderMissions();$("mission-error").textContent=error.message.startsWith("MISSION CONFLICT:")?"⚠ CONFLICT DETECTED — Review both versions below. No changes were overwritten.":"Status update failed: "+error.message;$("mission-error").classList.toggle("conflict-warning",error.message.startsWith("MISSION CONFLICT:"))}
    });
    $("mission-list").addEventListener("click",async e=>{
+     const conflictButton=e.target.closest("[data-conflict-action]");
+     if(conflictButton){
+      const id=conflictButton.dataset.conflictId,action=conflictButton.dataset.conflictAction,conflict=missionConflicts.get(id);
+      if(!conflict)return;
+      if(action==="keep-current"){missionConflicts.delete(id);missionConflictIds.delete(id);$("mission-error").textContent="Conflict resolved. The latest saved mission was retained."; $("mission-error").classList.remove("conflict-warning");renderMissions();return}
+      if(action==="apply-attempted"){
+       conflictButton.disabled=true;
+       try{
+        await StarRunnerDataStore.putMissionIfUnchanged(conflict.attempted,conflict.current,{actor:"user"});
+        missions=await StarRunnerDataStore.getAll("missions");missionConflicts.delete(id);missionConflictIds.delete(id);
+        $("mission-error").textContent="Your version was applied. The resolution is recorded in mission history.";$("mission-error").classList.remove("conflict-warning");renderMissions();
+       }catch(error){
+        missions=await StarRunnerDataStore.getAll("missions");
+        if(error.message.startsWith("MISSION CONFLICT:")){
+         const latest=missions.find(x=>x.id===id);
+         if(latest){conflict.current=JSON.parse(JSON.stringify(latest));conflict.fields=error.conflictFields||[];missionConflicts.set(id,conflict)}
+         $("mission-error").textContent="⚠ A newer change arrived during resolution. Compare the refreshed versions before trying again.";
+         $("mission-error").classList.add("conflict-warning");
+        }else $("mission-error").textContent="Resolution failed: "+error.message;
+        renderMissions();
+       }
+       return;
+      }
+     }
      const historyButton=e.target.closest("[data-history-id]");
      if(historyButton){
       const card=historyButton.closest(".mission-card");
@@ -645,7 +670,22 @@
    const select=document.createElement('select');select.className='field';select.setAttribute('aria-label','Mission status');select.dataset.statusId=m.id;
    const statusOptions=["PLANNED","ACTIVE","ON HOLD","COMPLETE","ABORTED"];const displayedStatus=m.status==="COMPLETED"?"COMPLETE":m.status;
    for(const status of statusOptions){const option=document.createElement('option');option.value=status;option.textContent=status;option.selected=displayedStatus===status;select.appendChild(option)}
-   const historyButton=document.createElement("button");historyButton.className="action";historyButton.textContent="History";historyButton.dataset.historyId=m.id;const del=document.createElement("button");del.className="action";del.textContent="Delete";del.dataset.deleteId=m.id;actions.append(select,historyButton,del);card.append(top,meta,objective,countdown,actions);list.appendChild(card);
+   const historyButton=document.createElement("button");historyButton.className="action";historyButton.textContent="History";historyButton.dataset.historyId=m.id;const del=document.createElement("button");del.className="action";del.textContent="Delete";del.dataset.deleteId=m.id;actions.append(select,historyButton,del);card.append(top,meta,objective,countdown,actions);
+   const conflict=missionConflicts.get(m.id);
+   if(conflict){
+    const panel=document.createElement("section");panel.className="result conflict-card";panel.style.marginTop="12px";
+    const warning=document.createElement("div");warning.className="conflict-warning";warning.textContent="⚠ MISSION CONFLICT · CHOOSE WHICH VERSION TO KEEP";
+    const intro=document.createElement("p");intro.className="note";intro.textContent="Another tab or source changed this mission after it was loaded. Compare the saved version with your attempted change.";
+    const comparison=document.createElement("div");comparison.style.fontSize="12px";comparison.style.lineHeight="1.6";
+    const fields=conflict.fields.length?conflict.fields:["status"];
+    const show=value=>value===undefined||value===null?"—":typeof value==="string"?value:JSON.stringify(value);
+    fields.forEach(field=>{const row=document.createElement("div");row.style.borderTop="1px solid #ef444455";row.style.paddingTop="6px";row.style.marginTop="6px";const name=document.createElement("strong");name.textContent=field.toUpperCase();const saved=document.createElement("div");saved.textContent="LATEST SAVED: "+show(conflict.current[field]);const attempted=document.createElement("div");attempted.textContent="YOUR VERSION: "+show(conflict.attempted[field]);row.append(name,saved,attempted);comparison.appendChild(row)});
+    const choices=document.createElement("div");choices.className="btnrow";
+    const keep=document.createElement("button");keep.className="action";keep.textContent="Keep Latest Saved";keep.dataset.conflictAction="keep-current";keep.dataset.conflictId=m.id;
+    const apply=document.createElement("button");apply.className="action";apply.textContent="Apply My Version";apply.dataset.conflictAction="apply-attempted";apply.dataset.conflictId=m.id;
+    choices.append(keep,apply);panel.append(warning,intro,comparison,choices);card.appendChild(panel);
+   }
+   list.appendChild(card);
   }
   if(totalPages>1){
    const pager=document.createElement('div');pager.className='btnrow';pager.style.alignItems='center';pager.style.justifyContent='space-between';
