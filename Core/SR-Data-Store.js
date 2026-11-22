@@ -160,6 +160,37 @@
     }
   }
 
+  async function putMany(storeName, records) {
+    if (!Object.values(STORES).includes(storeName)) {
+      throw new Error("Unknown Star Runner data store: " + storeName);
+    }
+    if (!Array.isArray(records)) {
+      throw new TypeError("Records must be supplied as an array.");
+    }
+    const ids = new Set();
+    records.forEach(function (record) {
+      if (!record || typeof record.id !== "string" || !record.id) {
+        throw new TypeError("Every Star Runner record must have a non-empty string id.");
+      }
+      if (ids.has(record.id)) {
+        throw new Error("Duplicate record ID in batch: " + record.id);
+      }
+      ids.add(record.id);
+    });
+    if (records.length === 0) return [];
+    const db = await open();
+    try {
+      const transaction = db.transaction([storeName], "readwrite");
+      const done = transactionDone(transaction);
+      const store = transaction.objectStore(storeName);
+      records.forEach(function (record) { store.put(record); });
+      await done;
+      return records;
+    } finally {
+      db.close();
+    }
+  }
+
   async function remove(storeName, id) {
     if (!Object.values(STORES).includes(storeName)) {
       throw new Error("Unknown Star Runner data store: " + storeName);
@@ -336,6 +367,7 @@
     migrateLegacyMissions: migrateLegacyMissions,
     getAll: getAll,
     put: put,
+    putMany: putMany,
     remove: remove,
     createBackup: createBackup,
     validateBackup: validateBackup,
