@@ -131,6 +131,17 @@
       <div class="between"><strong>Mission Register</strong><span class="muted" id="mission-sort-label">Sorted by departure</span></div>
       <div id="mission-list" aria-live="polite"></div>
     </section>
+    <section class="panel">
+      <div class="label">DATA VAULT · BACKUP & RECOVERY</div>
+      <div style="font-weight:700;margin-top:8px">Local Data Backup</div>
+      <p class="note">Export a copy of all Star Runner records stored on this device. Keep the backup somewhere safe, such as iCloud Drive or Files. Backups are not uploaded automatically.</p>
+      <div class="btnrow">
+        <button class="action primary" id="export-backup" disabled>Export Backup</button>
+        <button class="action" id="choose-backup" disabled>Restore from File</button>
+        <input id="backup-file" type="file" accept="application/json,.json" class="hidden" aria-label="Choose Star Runner backup file">
+      </div>
+      <div class="note" id="backup-status" role="status" style="margin-top:10px">Backup tools will be available when the local data vault is online.</div>
+    </section>
   </main>
 
   <main id="system-view" class="hidden">
@@ -193,6 +204,9 @@
    missions=await StarRunnerDataStore.getAll("missions");
    missionStorageReady=true;
    $("create-mission").disabled=false;
+   $("export-backup").disabled=false;
+   $("choose-backup").disabled=false;
+   $("backup-status").textContent="Data vault online. Backups include vessels, crew, missions, calendar, and system records.";
    if(result.migration.migrated){
     $("mission-error").textContent="Legacy mission records migrated successfully ("+result.migration.count+"). Original backup retained.";
    }else if(result.migration.reason==="already-migrated"){
@@ -223,6 +237,43 @@
    renderMissions();
   }catch(error){showMissionStorageError(error)}
  }
+ async function exportBackup(){
+  const button=$("export-backup");button.disabled=true;
+  $("backup-status").textContent="Preparing a consistent local data snapshot…";
+  try{
+   const backup=await StarRunnerDataStore.createBackup();
+   const validation=StarRunnerDataStore.validateBackup(backup);
+   const blob=new Blob([JSON.stringify(backup,null,2)],{type:"application/json"});
+   const url=URL.createObjectURL(blob),link=document.createElement("a");
+   const stamp=new Date().toISOString().replace(/[:.]/g,"-");
+   link.href=url;link.download="Star-Runner-Backup-"+stamp+".json";
+   document.body.appendChild(link);link.click();link.remove();
+   setTimeout(()=>URL.revokeObjectURL(url),1000);
+   $("backup-status").textContent="Backup prepared and validated. Records — "+Object.keys(validation.counts).map(name=>name+": "+validation.counts[name]).join(" · ")+". Confirm the file appears in Files before relying on it.";
+  }catch(error){$("backup-status").textContent="BACKUP FAILED: "+error.message}
+  finally{button.disabled=!missionStorageReady}
+ }
+ async function restoreBackupFile(file){
+  if(!file)return;
+  $("backup-status").textContent="Reading and validating backup file…";$("choose-backup").disabled=true;
+  try{
+   const backup=JSON.parse(await file.text());
+   const validation=StarRunnerDataStore.validateBackup(backup);
+   const summary=Object.keys(validation.counts).map(name=>name+": "+validation.counts[name]).join("\n");
+   const created=validation.createdAt?new Date(validation.createdAt).toLocaleString():"Unknown";
+   if(!confirm("Restore this Star Runner backup?\n\nBackup created: "+created+"\n"+summary+"\n\nThis replaces all current records in all five local data stores. Export a fresh backup first if you may need the current data.")){
+    $("backup-status").textContent="Restore cancelled. Current data was not changed.";return;
+   }
+   const result=await StarRunnerDataStore.restoreBackup(backup);
+   missions=await StarRunnerDataStore.getAll("missions");renderMissions();
+   $("backup-status").textContent="Restore completed. Restored records — "+Object.keys(result.counts).map(name=>name+": "+result.counts[name]).join(" · ")+".";
+   $("mission-error").textContent="Data vault restored from backup.";
+  }catch(error){$("backup-status").textContent="RESTORE FAILED: "+error.message+". Current records were not intentionally changed."}
+  finally{$("choose-backup").disabled=!missionStorageReady;$("backup-file").value=""}
+ }
+ $("export-backup").addEventListener("click",exportBackup);
+ $("choose-backup").addEventListener("click",()=>$("backup-file").click());
+ $("backup-file").addEventListener("change",event=>restoreBackupFile(event.target.files&&event.target.files[0]));
  async function createMission(){
   $("mission-error").textContent="";
   if(!missionStorageReady){$("mission-error").textContent="Mission data vault is not ready. No mission was created.";return}
