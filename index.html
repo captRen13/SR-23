@@ -236,6 +236,7 @@
   try{
    const result=await StarRunnerDataStore.initialize();
    missions=await StarRunnerDataStore.getAll("missions");
+   await refreshCalendarMissionStatuses();
    missionStorageReady=true;
    $("create-mission").disabled=false;
    $("export-backup").disabled=false;
@@ -444,7 +445,7 @@
      destination:String(event.location||""),
      departure:departure.toISOString(),
      objective:String(event.notes||""),
-     status:existing?existing.status:"PLANNED",
+     status:existing&&existing.status==="ABORTED"?"ABORTED":(endDate.getTime()<=Date.now()?"COMPLETE":"ACTIVE"),
      createdAt:existing&&existing.createdAt?existing.createdAt:importedAt,
      source:"apple-calendar",
      sourceEventIdentifier:event.sourceEventIdentifier,
@@ -462,6 +463,7 @@
    const added=imported.length-updated;
    await StarRunnerDataStore.putMany("missions",imported);
    missions=await StarRunnerDataStore.getAll("missions");
+   await refreshCalendarMissionStatuses();
    missionPage=0;
    renderMissions();
    const calendarNames=payload.selectedCalendars.map(c=>String(c.title||"")).filter(Boolean).join(", ");
@@ -501,7 +503,7 @@
     $("backup-status").textContent="Restore cancelled. Current data was not changed.";return;
    }
    const result=await StarRunnerDataStore.restoreBackup(backup);
-   missions=await StarRunnerDataStore.getAll("missions");renderMissions();
+   missions=await StarRunnerDataStore.getAll("missions");await refreshCalendarMissionStatuses();renderMissions();
    $("backup-status").textContent="Restore completed. Restored records — "+Object.keys(result.counts).map(name=>name+": "+result.counts[name]).join(" · ")+".";
    $("mission-error").textContent="Data vault restored from backup.";
   }catch(error){$("backup-status").textContent="RESTORE FAILED: "+error.message+". Current records were not intentionally changed."}
@@ -539,6 +541,21 @@
   return (days?days+'d ':'')+pad(hours)+'h '+pad(mins)+'m '+pad(s)+'s';
  }
  function renderMissionCountdowns(){document.querySelectorAll('[data-countdown]').forEach(el=>{const m=missions.find(x=>x.id===el.dataset.countdown);if(m)el.textContent=formatDuration(new Date(m.departure).getTime()-Date.now())})}
+ function calendarMissionStatus(m,now){
+  if(m.status==="ABORTED")return "ABORTED";
+  const end=Date.parse(m.sourceEndDate||m.departure);
+  return Number.isFinite(end)&&end<=now?"COMPLETE":"ACTIVE";
+ }
+ async function refreshCalendarMissionStatuses(){
+  const now=Date.now(),changed=[];
+  missions.forEach(m=>{
+   if(m.source!=="apple-calendar")return;
+   const next=calendarMissionStatus(m,now);
+   if(m.status!==next){m.status=next;changed.push(m)}
+  });
+  if(changed.length)await StarRunnerDataStore.putMany("missions",changed);
+  return changed.length;
+ }
  function renderMissions(){
   if(!$('mission-list'))return;
   const list=$('mission-list'),now=Date.now();
@@ -547,7 +564,7 @@
    if(af!==bf)return af?-1:1;
    return af?at-bt:bt-at;
   });
-  $('mission-total').textContent=String(missions.length);$('mission-upcoming').textContent=String(missions.filter(m=>m.status==='PLANNED'&&new Date(m.departure)>now).length);list.replaceChildren();
+  $('mission-total').textContent=String(missions.length);$('mission-upcoming').textContent=String(missions.filter(m=>(m.status==='PLANNED'||m.status==='ACTIVE')&&new Date(m.departure)>now).length);list.replaceChildren();
   if(!sorted.length){const empty=document.createElement('div');empty.className='empty-state';empty.textContent='No missions in the register. Create your first mission order above.';list.appendChild(empty);return}
   const firstPageSize=5,pageSize=10;
   const totalPages=sorted.length<=firstPageSize?1:1+Math.ceil((sorted.length-firstPageSize)/pageSize);
@@ -566,7 +583,8 @@
    const countdown=document.createElement('div');countdown.className='mission-countdown';countdown.dataset.countdown=m.id;countdown.textContent=formatDuration(date.getTime()-Date.now());
    const actions=document.createElement('div');actions.className='mission-actions';
    const select=document.createElement('select');select.className='field';select.setAttribute('aria-label','Mission status');select.dataset.statusId=m.id;
-   for(const status of ['PLANNED','ACTIVE','ON HOLD','COMPLETED','ABORTED']){const option=document.createElement('option');option.value=status;option.textContent=status;option.selected=m.status===status;select.appendChild(option)}
+   const statusOptions=m.source==="apple-calendar"?["ACTIVE","COMPLETE","ABORTED"]:["PLANNED","ACTIVE","ON HOLD","COMPLETE","COMPLETED","ABORTED"];
+   for(const status of statusOptions){const option=document.createElement('option');option.value=status;option.textContent=status;option.selected=m.status===status;select.appendChild(option)}
    const del=document.createElement('button');del.className='action';del.textContent='Delete';del.dataset.deleteId=m.id;actions.append(select,del);card.append(top,meta,objective,countdown,actions);list.appendChild(card);
   }
   if(totalPages>1){
@@ -643,8 +661,9 @@
  let updateTimer;
  function scheduleClock(){clearTimeout(updateTimer);const delay=50-(Date.now()%50);updateTimer=setTimeout(()=>{update();renderMissionCountdowns();scheduleClock()},delay)}
  scheduleClock();
- document.addEventListener('visibilitychange',()=>{if(!document.hidden){update();renderMissionCountdowns();if(window.sr23Registration)window.sr23Registration.update().catch(()=>{})}});
- window.addEventListener('pageshow',()=>{update();renderMissionCountdowns()});
+ setInterval(()=>{refreshCalendarMissionStatuses().then(changed=>{if(changed)renderMissions()}).catch(error=>{$("mission-error").textContent="Automatic mission status update failed: "+error.message})},60000);
+ document.addEventListener('visibilitychange',()=>{if(!document.hidden){update();renderMissionCountdowns();refreshCalendarMissionStatuses().then(changed=>{if(changed)renderMissions()}).catch(error=>{$("mission-error").textContent="Automatic mission status update failed: "+error.message});if(window.sr23Registration)window.sr23Registration.update().catch(()=>{})}});
+ window.addEventListener('pageshow',()=>{update();renderMissionCountdowns();refreshCalendarMissionStatuses().then(changed=>{if(changed)renderMissions()}).catch(error=>{$("mission-error").textContent="Automatic mission status update failed: "+error.message})});
  if('serviceWorker' in navigator){
   navigator.serviceWorker.register('./sw.js').then(reg=>{window.sr23Registration=reg;reg.update().catch(()=>{});reg.addEventListener('updatefound',()=>{const worker=reg.installing;if(worker)worker.addEventListener('statechange',()=>{if(worker.state==='installed'&&navigator.serviceWorker.controller)$('update-banner').classList.add('visible')})})}).catch(()=>{});
   $('reload-update').addEventListener('click',()=>{if(window.sr23Registration&&window.sr23Registration.waiting)window.sr23Registration.waiting.postMessage({type:'SKIP_WAITING'});else location.reload()});
