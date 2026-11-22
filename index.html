@@ -155,10 +155,6 @@
           <div class="note" id="reconciliation-status" role="status" style="margin-top:10px">Reconciliation preview will be available when the local data vault is online.</div>
           <div class="result hidden" id="reconciliation-results" aria-live="polite"></div>
           <div class="rule"></div>
-          <div class="label">CONFIRMED CANCELLATION · FAMILY FHE</div>
-          <p class="note">Targeted action for the confirmed Family-calendar FHE series at 5:30 PM. The action proceeds only if exactly 17 matching imported occurrences are found.</p>
-          <div class="btnrow"><button class="action" id="abort-family-fhe" disabled>Review Family FHE Cancellations</button></div>
-          <div class="note" id="family-fhe-status" role="status" style="margin-top:10px">Available when the local data vault is online.</div>
           <div class="rule"></div>
           <div class="btnrow">
             <button class="action primary" id="import-apple-calendar" disabled>Import Calendar Missions</button>
@@ -227,6 +223,7 @@
  let current=0,selected=0,gridKey='';
 
  let missions=[];
+ let pendingCalendarReconciliation=null;
  let missionPage=0;
  let missionStorageReady=false;
  function showMissionStorageError(error){
@@ -249,7 +246,6 @@
    $("verify-vault").disabled=false;
    $("import-apple-calendar").disabled=false;
    $("preview-calendar-reconciliation").disabled=false;
-   $("abort-family-fhe").disabled=false;
    $("backup-status").textContent="Data vault online. Backups include vessels, crew, missions, calendar, and system records.";
    if(result.migration.migrated){
     $("mission-error").textContent="Legacy mission records migrated successfully ("+result.migration.count+"). Original backup retained.";
@@ -303,147 +299,129 @@
    const departure=new Date(event.startDate);
    return "apple-calendar::"+event.calendarIdentifier+"::"+event.sourceEventIdentifier+"::"+departure.toISOString();
   }
+  function renderReconciliationResults(){
+   const output=$("reconciliation-results"),pending=pendingCalendarReconciliation;
+   if(!pending)return;
+   output.replaceChildren();
+   const heading=document.createElement("div");heading.className="label";heading.textContent="CALENDAR RECONCILIATION · REVIEW & APPLY";
+   const summary=document.createElement("p");summary.className="note";
+   summary.textContent="Review each detected difference. Actions are applied individually; nothing is deleted automatically. Calendars: "+pending.calendarNames+".";
+   const counts=document.createElement("div");counts.className="grid";
+   [["NEW",pending.added.length],["CHANGED",pending.changed.length],["MISSING",pending.missing.length],["UNCHANGED",pending.unchanged]].forEach(item=>{
+    const cell=document.createElement("div");cell.className="metric";const key=document.createElement("div");key.className="k";key.textContent=item[0];
+    const value=document.createElement("div");value.className="v";value.textContent=String(item[1]);cell.append(key,value);counts.appendChild(cell);
+   });
+   output.append(heading,summary,counts);
+   function addSection(title,items,type){
+    if(!items.length)return;
+    const label=document.createElement("div");label.className="label";label.style.marginTop="14px";label.textContent=title;output.appendChild(label);
+    items.forEach((entry,index)=>{
+     const card=document.createElement("div");card.className="mission-meta";card.style.padding="10px 0";
+     const event=entry.event||entry.mission;
+     const when=new Date(event.startDate||event.departure);
+     const name=String(event.title||"Untitled Event");
+     const calendar=String(event.calendarTitle||event.sourceCalendarTitle||"Calendar");
+     const description=document.createElement("div");
+     description.textContent=name+" · "+(Number.isFinite(when.getTime())?when.toLocaleString():"Date unavailable")+" · "+calendar+(entry.possibleReschedule?" · POSSIBLE RESCHEDULE — verify manually":"");
+     card.appendChild(description);
+     if(entry.resolved){const done=document.createElement("div");done.className="note";done.textContent=entry.resolution||"Reviewed; no change applied.";card.appendChild(done)}
+     else{
+      const controls=document.createElement("div");controls.className="btnrow";controls.style.marginTop="8px";
+      const actions=type==="new"?[["import","Import as Mission"]]:type==="changed"?[["update","Apply Update"]]:[["keep","Keep Mission"],["abort","Mark ABORTED"]];
+      actions.forEach(([action,labelText])=>{const b=document.createElement("button");b.className="action";b.textContent=labelText;b.dataset.reconcileAction=action;b.dataset.reconcileType=type;b.dataset.reconcileIndex=String(index);controls.appendChild(b)});
+      card.appendChild(controls);
+     }
+     output.appendChild(card);
+    });
+   }
+   addSection("NEW EVENTS",pending.added,"new");
+   addSection("CHANGED EVENTS",pending.changed,"changed");
+   addSection("MISSING EVENTS · REVIEW REQUIRED",pending.missing,"missing");
+   const safety=document.createElement("p");safety.className="note";
+   safety.textContent="Missing means absent from this export range, not confirmed cancelled. Check calendar selection and date coverage before marking ABORTED. Rescheduled or ambiguous recurring occurrences are flagged, never automatically paired. Manual missions are excluded.";
+   output.appendChild(safety);
+   output.classList.remove("hidden");
+  }
+  async function applyCalendarReconciliationAction(action,type,index){
+   const pending=pendingCalendarReconciliation;
+   if(!pending||!missionStorageReady)return;
+   const list=type==="new"?pending.added:type==="changed"?pending.changed:pending.missing;
+   const entry=list[index];
+   if(!entry||entry.resolved)return;
+   const event=entry.event;
+   if(action==="keep"){entry.resolved=true;entry.resolution="Kept unchanged.";renderReconciliationResults();return}
+   if(action==="abort"){
+    const mission=entry.mission;
+    if(!confirm("Mark this imported mission ABORTED?\n\n"+mission.title+"\n"+new Date(mission.departure).toLocaleString()+"\n"+mission.sourceCalendarTitle+"\n\nThe mission will remain in the register and can be changed later."))return;
+    await StarRunnerDataStore.put("missions",{...mission,status:"ABORTED"});
+    entry.resolved=true;entry.resolution="Mission marked ABORTED.";
+   }else{
+    const mission=type==="changed"?entry.mission:null;
+    const title=String(event.title||"Untitled Event").trim()||"Untitled Event";
+    if(!confirm((action==="import"?"Import this event as a mission?":"Apply these calendar changes to the imported mission?")+"\n\n"+title+"\n"+new Date(event.startDate).toLocaleString()+"\n"+String(event.calendarTitle||"Calendar")+"\n\nExisting mission status will be preserved."))return;
+    const departure=new Date(event.startDate),endDate=new Date(event.endDate);
+    const record={
+     id:calendarOccurrenceId(event),title,destination:String(event.location||""),departure:departure.toISOString(),
+     objective:String(event.notes||""),status:mission?mission.status:calendarMissionStatus({status:"PLANNED",departure:departure.toISOString(),sourceEndDate:endDate.toISOString()},Date.now()),
+     createdAt:mission&&mission.createdAt?mission.createdAt:new Date().toISOString(),source:"apple-calendar",
+     sourceEventIdentifier:event.sourceEventIdentifier,sourceCalendarIdentifier:event.calendarIdentifier,
+     sourceCalendarTitle:String(event.calendarTitle||""),sourceEndDate:endDate.toISOString(),sourceTimeZone:event.timeZone||null,
+     isAllDay:Boolean(event.isAllDay),sourceAvailability:event.availability||null,importedAt:new Date().toISOString()
+    };
+    await StarRunnerDataStore.put("missions",record);
+    entry.resolved=true;entry.resolution=action==="import"?"Imported as a mission.":"Calendar update applied; mission status preserved.";
+   }
+   missions=await StarRunnerDataStore.getAll("missions");renderMissions();renderReconciliationResults();
+   $("reconciliation-status").textContent="Action applied. Review the remaining calendar differences below.";
+  }
   async function previewCalendarReconciliation(file){
    if(!file)return;
-   const button=$("preview-calendar-reconciliation");
-   const output=$("reconciliation-results");
-   button.disabled=true;
-   output.classList.add("hidden");
-   $("reconciliation-status").textContent="Comparing the selected calendar export with imported missions. No records will be changed…";
+   const button=$("preview-calendar-reconciliation"),output=$("reconciliation-results");
+   button.disabled=true;output.classList.add("hidden");
+   $("reconciliation-status").textContent="Comparing calendar export with imported missions. No records will be changed…";
    try{
     const payload=JSON.parse(await file.text());
-    if(!payload||payload.format!=="star-runner-apple-calendar"||payload.formatVersion!==1||
-       !Array.isArray(payload.events)||!Array.isArray(payload.selectedCalendars)||
-       !payload.range||typeof payload.range.start!=="string"||typeof payload.range.end!=="string"){
-     throw new Error("This is not a supported calendar export or it is missing its comparison range.");
-    }
+    if(!payload||payload.format!=="star-runner-apple-calendar"||payload.formatVersion!==1||!Array.isArray(payload.events)||!Array.isArray(payload.selectedCalendars)||!payload.range||typeof payload.range.start!=="string"||typeof payload.range.end!=="string")throw new Error("Unsupported calendar export or missing comparison range.");
     if(payload.eventCount!==payload.events.length)throw new Error("Export event count does not match its event records.");
     const rangeStart=new Date(payload.range.start),rangeEnd=new Date(payload.range.end);
-    if(!Number.isFinite(rangeStart.getTime())||!Number.isFinite(rangeEnd.getTime())||rangeEnd<=rangeStart){
-     throw new Error("The export date range is invalid. No comparison was performed.");
-    }
+    if(!Number.isFinite(rangeStart.getTime())||!Number.isFinite(rangeEnd.getTime())||rangeEnd<=rangeStart)throw new Error("Invalid export date range.");
     const calendarIds=new Set(payload.selectedCalendars.map(c=>c&&String(c.identifier||"")).filter(Boolean));
-    if(!calendarIds.size)throw new Error("The export does not identify any selected calendars.");
+    if(!calendarIds.size)throw new Error("No selected calendar identifiers found.");
     const incoming=new Map();
     payload.events.forEach((event,index)=>{
-     if(!event||typeof event.calendarIdentifier!=="string"||!event.calendarIdentifier||
-        typeof event.sourceEventIdentifier!=="string"||!event.sourceEventIdentifier){
-      throw new Error("Event "+(index+1)+" is missing its source identifiers.");
-     }
+     if(!event||typeof event.calendarIdentifier!=="string"||!event.calendarIdentifier||typeof event.sourceEventIdentifier!=="string"||!event.sourceEventIdentifier)throw new Error("Event "+(index+1)+" is missing source identifiers.");
      const start=new Date(event.startDate),end=new Date(event.endDate);
-     if(!Number.isFinite(start.getTime())||!Number.isFinite(end.getTime())||end<start){
-      throw new Error("Event "+(index+1)+" has an invalid date range.");
-     }
-     const id=calendarOccurrenceId(event);
-     if(incoming.has(id))throw new Error("Duplicate event occurrence in export: "+String(event.title||"Untitled Event"));
-     incoming.set(id,event);
+     if(!Number.isFinite(start.getTime())||!Number.isFinite(end.getTime())||end<start)throw new Error("Event "+(index+1)+" has invalid dates.");
+     const id=calendarOccurrenceId(event);if(incoming.has(id))throw new Error("Duplicate event occurrence: "+String(event.title||"Untitled Event"));incoming.set(id,event);
     });
-    const importedMissions=missions.filter(m=>m.source==="apple-calendar"&&
-     calendarIds.has(String(m.sourceCalendarIdentifier||""))&&
-     Number.isFinite(Date.parse(m.departure))&&
-     Date.parse(m.departure)>=rangeStart.getTime()&&Date.parse(m.departure)<rangeEnd.getTime());
-    const existingById=new Map(importedMissions.map(m=>[m.id,m]));
-    const added=[],changed=[],unchanged=[];
+    const existing=missions.filter(m=>m.source==="apple-calendar"&&calendarIds.has(String(m.sourceCalendarIdentifier||""))&&Number.isFinite(Date.parse(m.departure))&&Date.parse(m.departure)>=rangeStart.getTime()&&Date.parse(m.departure)<rangeEnd.getTime());
+    const byId=new Map(existing.map(m=>[m.id,m])),added=[],changed=[],unchanged=[];
     incoming.forEach((event,id)=>{
-     const existing=existingById.get(id);
-     if(!existing){added.push(event);return}
-     const fields=[
-      [existing.title,String(event.title||"Untitled Event").trim()||"Untitled Event"],
-      [existing.destination,String(event.location||"")],
-      [existing.objective,String(event.notes||"")],
-      [existing.departure,new Date(event.startDate).toISOString()],
-      [existing.sourceEndDate,new Date(event.endDate).toISOString()],
-      [existing.sourceTimeZone||null,event.timeZone||null],
-      [Boolean(existing.isAllDay),Boolean(event.isAllDay)],
-      [existing.sourceAvailability||null,event.availability||null]
+     const mission=byId.get(id);
+     if(!mission){added.push({event,resolved:false});return}
+     const differences=[
+      mission.title!==(String(event.title||"Untitled Event").trim()||"Untitled Event"),
+      mission.destination!==String(event.location||""),mission.objective!==String(event.notes||""),
+      mission.departure!==new Date(event.startDate).toISOString(),mission.sourceEndDate!==new Date(event.endDate).toISOString(),
+      (mission.sourceTimeZone||null)!==(event.timeZone||null),Boolean(mission.isAllDay)!==Boolean(event.isAllDay),
+      (mission.sourceAvailability||null)!==(event.availability||null)
      ];
-     if(fields.some(pair=>pair[0]!==pair[1]))changed.push(event);
-     else unchanged.push(event);
+     if(differences.some(Boolean))changed.push({event,mission,resolved:false});else unchanged.push(event);
     });
-    const missing=importedMissions.filter(m=>!incoming.has(m.id));
-    const names=payload.selectedCalendars.map(c=>String(c.title||"")).filter(Boolean).join(", ");
-    output.replaceChildren();
-    const heading=document.createElement("div");heading.className="label";heading.textContent="RECONCILIATION PREVIEW · READ ONLY";
-    const summary=document.createElement("p");summary.className="note";
-    summary.textContent="Compared "+payload.events.length+" exported event(s) against "+importedMissions.length+
-     " previously imported mission(s) in the overlapping date range. Calendars: "+(names||"selected calendars")+".";
-    const counts=document.createElement("div");counts.className="grid";
-    [["NEW",added.length],["CHANGED",changed.length],["MISSING",missing.length],["UNCHANGED",unchanged.length]].forEach(item=>{
-     const cell=document.createElement("div");cell.className="metric";
-     const key=document.createElement("div");key.className="k";key.textContent=item[0];
-     const value=document.createElement("div");value.className="v";value.textContent=String(item[1]);
-     cell.append(key,value);counts.appendChild(cell);
-    });
-    output.append(heading,summary,counts);
-    if(missing.length){
-     const note=document.createElement("p");note.className="note";
-     note.textContent="MISSING CANDIDATES — not found in this export. This may indicate cancellation, deletion, rescheduling, or a change in calendar selection:";
-     output.appendChild(note);
-     missing.slice(0,12).forEach(m=>{
-      const item=document.createElement("div");item.className="mission-meta";
-      item.textContent="• "+m.title+" · "+new Date(m.departure).toLocaleString()+" · "+String(m.sourceCalendarTitle||"Calendar");
-      output.appendChild(item);
-     });
-     if(missing.length>12){const more=document.createElement("div");more.className="mission-meta";more.textContent="And "+(missing.length-12)+" more.";output.appendChild(more)}
-    }
-    if(changed.length){
-     const note=document.createElement("p");note.className="note";note.textContent="CHANGED EVENTS — matching occurrence IDs with updated details:";
-     output.appendChild(note);
-     changed.slice(0,12).forEach(event=>{
-      const item=document.createElement("div");item.className="mission-meta";
-      item.textContent="• "+String(event.title||"Untitled Event")+" · "+new Date(event.startDate).toLocaleString();
-      output.appendChild(item);
-     });
-    }
-    if(!missing.length&&!changed.length&&!added.length){
-     const note=document.createElement("p");note.className="note";note.textContent="No calendar differences detected in this export range.";
-     output.appendChild(note);
-    }
-    const safety=document.createElement("p");safety.className="note";
-    safety.textContent="PREVIEW ONLY. No missions were added, updated, cancelled, or deleted. Missing items require manual review; this comparison cannot prove why an event is absent.";
-    output.appendChild(safety);
-    output.classList.remove("hidden");
-    $("reconciliation-status").textContent="Preview complete. Review the results below; the Mission Register is unchanged.";
-   }catch(error){
-    $("reconciliation-status").textContent="PREVIEW FAILED: "+error.message;
-   }finally{
-    button.disabled=!missionStorageReady;
-    $("reconcile-calendar-file").value="";
-   }
+    const missing=existing.filter(m=>!incoming.has(m.id)).map(m=>({mission:m,resolved:false}));
+    // Identify possible reschedules without auto-pairing recurring series occurrences.
+    const seriesKey=x=>String(x.calendarIdentifier||x.sourceCalendarIdentifier||"")+"::"+String(x.sourceEventIdentifier||"");
+    const addGroups=new Map(),missGroups=new Map();
+    added.forEach(x=>{const k=seriesKey(x.event);addGroups.set(k,[...(addGroups.get(k)||[]),x])});
+    missing.forEach(x=>{const k=seriesKey(x.mission);missGroups.set(k,[...(missGroups.get(k)||[]),x])});
+    addGroups.forEach((adds,key)=>{const misses=missGroups.get(key)||[];if(misses.length){adds.forEach(x=>x.possibleReschedule=true);misses.forEach(x=>x.possibleReschedule=true)}});
+    pendingCalendarReconciliation={added,changed,missing,unchanged:unchanged.length,calendarNames:payload.selectedCalendars.map(c=>String(c.title||"")).filter(Boolean).join(", ")||"selected calendars"};
+    renderReconciliationResults();
+    $("reconciliation-status").textContent="Preview ready. Choose an action for each new, changed, or missing event. No changes have been applied yet.";
+   }catch(error){$("reconciliation-status").textContent="PREVIEW FAILED: "+error.message}
+   finally{button.disabled=!missionStorageReady;$("reconcile-calendar-file").value=""}
   }
-  async function reconcileFamilyFHECancellations(){
-   const button=$("abort-family-fhe"),status=$("family-fhe-status");
-   button.disabled=true;
-   try{
-    const imported=missions.filter(m=>m.source==="apple-calendar");
-    const family=imported.filter(m=>String(m.sourceCalendarTitle||"").toLowerCase().includes("family"));
-    const fhe=family.filter(m=>String(m.title||"").trim().toLowerCase()==="fhe");
-    // The exported availability field is not reliably preserved by CalendarKit.
-    // Target only the explicitly confirmed Family FHE series by calendar, title, date, and local start time.
-    const dateRange=fhe.filter(m=>{const d=new Date(m.departure);return Number.isFinite(d.getTime())&&d.getFullYear()===2026&&d.getMonth()>=9&&d.getMonth()<=11||Number.isFinite(d.getTime())&&d.getFullYear()===2027&&d.getMonth()===0||Number.isFinite(d.getTime())&&d.getFullYear()===2027&&d.getMonth()===1&&d.getDate()<=15;});
-    const targets=dateRange.filter(m=>{const d=new Date(m.departure);return d.getHours()===17&&d.getMinutes()===30;})
-     .sort((a,b)=>Date.parse(a.departure)-Date.parse(b.departure));
-    if(targets.length!==17){
-     status.textContent="SAFETY HOLD. No missions were changed. Diagnostic counts — imported Apple Calendar: "+imported.length+"; calendar title includes Family: "+family.length+"; title FHE: "+fhe.length+"; target date range: "+dateRange.length+"; local time 5:30 PM: "+targets.length+".";
-     return;
-    }
-    const details=targets.map(m=>new Date(m.departure).toLocaleDateString()+" · "+m.title+" · "+m.sourceCalendarTitle).join("\n");
-    if(!confirm("MARK 17 FAMILY FHE MISSIONS ABORTED?\n\n"+details+"\n\nOnly these 17 imported Family-calendar occurrences will change. Work-calendar FHE and all other missions remain untouched. This action can be reversed manually in the Mission Register. Continue?")){
-     status.textContent="Cancelled. No missions were changed.";
-     return;
-    }
-    const updates=targets.map(m=>({...m,status:"ABORTED"}));
-    await StarRunnerDataStore.putMany("missions",updates);
-    missions=await StarRunnerDataStore.getAll("missions");
-    missionPage=0;renderMissions();
-    status.textContent="RECONCILIATION COMPLETE. 17 Family-calendar FHE occurrences marked ABORTED. Work-calendar FHE and all other missions were left unchanged.";
-   }catch(error){
-    status.textContent="RECONCILIATION FAILED: "+error.message+". No partial batch should have been committed.";
-   }finally{
-    button.disabled=!missionStorageReady;
-   }
-  }
-  async function importAppleCalendarFile(file){
+    async function importAppleCalendarFile(file){
   if(!file)return;
   const button=$("import-apple-calendar");
   button.disabled=true;
@@ -548,8 +526,8 @@
   finally{$("choose-backup").disabled=!missionStorageReady;$("backup-file").value=""}
  }
  $("preview-calendar-reconciliation").addEventListener("click",()=>$("reconcile-calendar-file").click());
- $("abort-family-fhe").addEventListener("click",reconcileFamilyFHECancellations);
  $("reconcile-calendar-file").addEventListener("change",event=>previewCalendarReconciliation(event.target.files&&event.target.files[0]));
+ $("reconciliation-results").addEventListener("click",event=>{const button=event.target.closest("[data-reconcile-action]");if(!button)return;applyCalendarReconciliationAction(button.dataset.reconcileAction,button.dataset.reconcileType,Number(button.dataset.reconcileIndex)).catch(error=>{$("reconciliation-status").textContent="ACTION FAILED: "+error.message})});
  $("import-apple-calendar").addEventListener("click",()=>$("apple-calendar-file").click());
  $("apple-calendar-file").addEventListener("change",event=>importAppleCalendarFile(event.target.files&&event.target.files[0]));
  $("verify-vault").addEventListener("click",runIntegrityCheck);
