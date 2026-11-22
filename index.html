@@ -267,11 +267,43 @@
     catch(error){m.status=previous;m.statusOrigin=previousOrigin;m.statusUpdatedAt=previousUpdatedAt;renderMissions();$("mission-error").textContent="Status update failed: "+error.message}
    });
    $("mission-list").addEventListener("click",async e=>{
-    const button=e.target.closest("[data-delete-id]");
-    if(!button)return;
-    const m=missions.find(x=>x.id===button.dataset.deleteId);
-    if(!m||!confirm('Delete mission "'+m.title+'"?'))return;
-    try{await StarRunnerDataStore.removeMission(m.id,{actor:"user"});missions=missions.filter(x=>x.id!==m.id);renderMissions()}
+     const historyButton=e.target.closest("[data-history-id]");
+     if(historyButton){
+      const card=historyButton.closest(".mission-card");
+      const existing=card.querySelector(".mission-history");
+      if(existing){existing.remove();historyButton.textContent="History";return}
+      historyButton.disabled=true;historyButton.textContent="Loading…";
+      const panel=document.createElement("div");panel.className="mission-history note";panel.textContent="Loading revision history…";card.appendChild(panel);
+      try{
+       const revisions=await StarRunnerDataStore.getMissionHistory(historyButton.dataset.historyId);
+       panel.replaceChildren();
+       if(!revisions.length){panel.textContent="No revisions recorded yet."}
+       else{
+        const heading=document.createElement("strong");heading.textContent="REVISION HISTORY · "+revisions.length+" recent change(s)";panel.appendChild(heading);
+        revisions.forEach(revision=>{
+         const item=document.createElement("div");item.style.borderTop="1px solid rgba(196,119,53,.25)";item.style.paddingTop="8px";item.style.marginTop="8px";
+         const summary=document.createElement("div");summary.textContent=new Date(revision.changedAt).toLocaleString()+" · "+String(revision.actor||"unknown").toUpperCase()+" · "+String(revision.action||"change").toUpperCase();item.appendChild(summary);
+         const fields=document.createElement("ul");fields.style.margin="6px 0 0";fields.style.paddingLeft="20px";
+         (revision.changedFields||[]).forEach(field=>{
+          const before=revision.before?revision.before[field]:undefined,after=revision.after?revision.after[field]:undefined;
+          const value=v=>v===undefined||v===null?"—":typeof v==="string"?v:JSON.stringify(v);
+          const clip=v=>{const text=value(v);return text.length>140?text.slice(0,137)+"…":text};
+          const line=document.createElement("li");line.textContent=field+": "+clip(before)+" → "+clip(after);fields.appendChild(line);
+         });
+         item.appendChild(fields);panel.appendChild(item);
+        });
+       }
+      }catch(error){panel.textContent="History unavailable: "+error.message}
+      finally{historyButton.disabled=false;historyButton.textContent="Hide History"}
+      return;
+     }
+     const button=e.target.closest("[data-delete-id]");
+     if(!button)return;
+     const m=missions.find(x=>x.id===button.dataset.deleteId);
+     if(!m||!confirm('Delete mission "'+m.title+'"?'))return;
+     try{await StarRunnerDataStore.removeMission(m.id,{actor:"user"});missions=missions.filter(x=>x.id!==m.id);renderMissions()}
+     catch(error){$("mission-error").textContent="Mission deletion failed: "+error.message}
+    });missions=missions.filter(x=>x.id!==m.id);renderMissions()}
     catch(error){$("mission-error").textContent="Mission deletion failed: "+error.message}
    });
    renderMissions();
@@ -609,7 +641,7 @@
    const select=document.createElement('select');select.className='field';select.setAttribute('aria-label','Mission status');select.dataset.statusId=m.id;
    const statusOptions=m.source==="apple-calendar"?["PLANNED","ACTIVE","ON HOLD","COMPLETE","ABORTED"]:["PLANNED","ACTIVE","ON HOLD","COMPLETE","COMPLETED","ABORTED"];
    for(const status of statusOptions){const option=document.createElement('option');option.value=status;option.textContent=status;option.selected=m.status===status;select.appendChild(option)}
-   const del=document.createElement('button');del.className='action';del.textContent='Delete';del.dataset.deleteId=m.id;actions.append(select,del);card.append(top,meta,objective,countdown,actions);list.appendChild(card);
+   const historyButton=document.createElement("button");historyButton.className="action";historyButton.textContent="History";historyButton.dataset.historyId=m.id;const del=document.createElement("button");del.className="action";del.textContent="Delete";del.dataset.deleteId=m.id;actions.append(select,historyButton,del);card.append(top,meta,objective,countdown,actions);list.appendChild(card);
   }
   if(totalPages>1){
    const pager=document.createElement('div');pager.className='btnrow';pager.style.alignItems='center';pager.style.justifyContent='space-between';
