@@ -155,6 +155,11 @@
           <div class="note" id="reconciliation-status" role="status" style="margin-top:10px">Reconciliation preview will be available when the local data vault is online.</div>
           <div class="result hidden" id="reconciliation-results" aria-live="polite"></div>
           <div class="rule"></div>
+          <div class="label">CONFIRMED CANCELLATION · FAMILY FHE</div>
+          <p class="note">Targeted action for the confirmed Family-calendar FHE series at 5:30 PM. The action proceeds only if exactly 17 matching imported occurrences are found.</p>
+          <div class="btnrow"><button class="action" id="abort-family-fhe" disabled>Review Family FHE Cancellations</button></div>
+          <div class="note" id="family-fhe-status" role="status" style="margin-top:10px">Available when the local data vault is online.</div>
+          <div class="rule"></div>
           <div class="btnrow">
             <button class="action primary" id="import-apple-calendar" disabled>Import Calendar Missions</button>
             <input id="apple-calendar-file" type="file" accept="application/json,.json" class="hidden" aria-label="Choose Apple Calendar export">
@@ -244,6 +249,7 @@
    $("verify-vault").disabled=false;
    $("import-apple-calendar").disabled=false;
    $("preview-calendar-reconciliation").disabled=false;
+   $("abort-family-fhe").disabled=false;
    $("backup-status").textContent="Data vault online. Backups include vessels, crew, missions, calendar, and system records.";
    if(result.migration.migrated){
     $("mission-error").textContent="Legacy mission records migrated successfully ("+result.migration.count+"). Original backup retained.";
@@ -405,6 +411,35 @@
     $("reconcile-calendar-file").value="";
    }
   }
+  async function reconcileFamilyFHECancellations(){
+   const button=$("abort-family-fhe"),status=$("family-fhe-status");
+   button.disabled=true;
+   try{
+    const targets=missions.filter(m=>{
+     if(m.source!=="apple-calendar"||m.sourceCalendarTitle!=="Family"||m.title!=="FHE"||m.sourceAvailability!=="free")return false;
+     const d=new Date(m.departure);
+     return Number.isFinite(d.getTime())&&d.getTime()>=new Date(2026,9,26).getTime()&&d.getTime()<=new Date(2027,1,15,23,59,59,999).getTime()&&d.getHours()===17&&d.getMinutes()===30;
+    }).sort((a,b)=>Date.parse(a.departure)-Date.parse(b.departure));
+    if(targets.length!==17){
+     status.textContent="SAFETY HOLD. Expected exactly 17 Family FHE occurrences at 5:30 PM; found "+targets.length+". No missions were changed.";
+     return;
+    }
+    const details=targets.map(m=>new Date(m.departure).toLocaleDateString()+" · "+m.title+" · "+m.sourceCalendarTitle).join("\n");
+    if(!confirm("MARK 17 FAMILY FHE MISSIONS ABORTED?\n\n"+details+"\n\nOnly these 17 imported Family-calendar occurrences will change. Work-calendar FHE and all other missions remain untouched. This action can be reversed manually in the Mission Register. Continue?")){
+     status.textContent="Cancelled. No missions were changed.";
+     return;
+    }
+    const updates=targets.map(m=>({...m,status:"ABORTED"}));
+    await StarRunnerDataStore.putMany("missions",updates);
+    missions=await StarRunnerDataStore.getAll("missions");
+    missionPage=0;renderMissions();
+    status.textContent="RECONCILIATION COMPLETE. 17 Family-calendar FHE occurrences marked ABORTED. Work-calendar FHE and all other missions were left unchanged.";
+   }catch(error){
+    status.textContent="RECONCILIATION FAILED: "+error.message+". No partial batch should have been committed.";
+   }finally{
+    button.disabled=!missionStorageReady;
+   }
+  }
   async function importAppleCalendarFile(file){
   if(!file)return;
   const button=$("import-apple-calendar");
@@ -510,6 +545,7 @@
   finally{$("choose-backup").disabled=!missionStorageReady;$("backup-file").value=""}
  }
  $("preview-calendar-reconciliation").addEventListener("click",()=>$("reconcile-calendar-file").click());
+ $("abort-family-fhe").addEventListener("click",reconcileFamilyFHECancellations);
  $("reconcile-calendar-file").addEventListener("change",event=>previewCalendarReconciliation(event.target.files&&event.target.files[0]));
  $("import-apple-calendar").addEventListener("click",()=>$("apple-calendar-file").click());
  $("apple-calendar-file").addEventListener("change",event=>importAppleCalendarFile(event.target.files&&event.target.files[0]));
