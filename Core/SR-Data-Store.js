@@ -84,61 +84,44 @@
 
   async function migrateLegacyMissions(db) {
     let raw;
-    try {
-      raw = root.localStorage.getItem(LEGACY_MISSION_KEY);
-    } catch (error) {
-      throw new Error("Unable to read existing mission records: " + error.message);
-    }
-
-    if (raw === null) {
-      return { migrated: false, count: 0, reason: "no-legacy-records" };
-    }
+    try { raw = root.localStorage.getItem(LEGACY_MISSION_KEY); }
+    catch (error) { throw new Error("Unable to read existing mission records: " + error.message); }
+    if (raw === null) return { migrated: false, count: 0, reason: "no-legacy-records" };
 
     let records;
-    try {
-      records = JSON.parse(raw);
-    } catch (error) {
-      throw new Error("Existing mission data is not valid JSON. Original data was left untouched.");
-    }
-
+    try { records = JSON.parse(raw); }
+    catch (_) { throw new Error("Existing mission data is not valid JSON. Original data was left untouched."); }
     if (!Array.isArray(records) || !records.every(validateMission)) {
       throw new Error("Existing mission data did not pass validation. Original data was left untouched.");
     }
 
-    const transaction = db.transaction(
-      [STORES.missions, STORES.system],
-      "readwrite"
-    );
+    const transaction = db.transaction([STORES.missions, STORES.system], "readwrite");
     const done = transactionDone(transaction);
     const missions = transaction.objectStore(STORES.missions);
     const system = transaction.objectStore(STORES.system);
+    let existingMarker = null;
+    const markerRequest = system.get(MIGRATION_KEY);
 
-    const marker = await requestResult(system.get(MIGRATION_KEY));
-    if (marker) {
-      transaction.abort();
-      try { await done; } catch (_) {}
-      return {
-        migrated: false,
-        count: marker.count || 0,
-        reason: "already-migrated"
-      };
-    }
-
-    records.forEach(function (record) {
-      missions.put(record);
-    });
-
-    system.put({
-      id: MIGRATION_KEY,
-      completedAt: new Date().toISOString(),
-      count: records.length,
-      source: LEGACY_MISSION_KEY,
-      sourceRetained: true
-    });
+    // Queue writes inside the request callback; Safari may auto-close a
+    // transaction if execution yields between IndexedDB requests.
+    markerRequest.onsuccess = function () {
+      existingMarker = markerRequest.result || null;
+      if (existingMarker) return;
+      records.forEach(function (record) { missions.put(record); });
+      system.put({
+        id: MIGRATION_KEY,
+        completedAt: new Date().toISOString(),
+        count: records.length,
+        source: LEGACY_MISSION_KEY,
+        sourceRetained: true
+      });
+    };
 
     await done;
-
-    // Deliberately retain the original localStorage key as a recovery backup.
+    if (existingMarker) {
+      return { migrated: false, count: existingMarker.count || 0, reason: "already-migrated" };
+    }
+    // Retain the original localStorage key as a recovery backup.
     return { migrated: true, count: records.length, reason: "completed" };
   }
 
