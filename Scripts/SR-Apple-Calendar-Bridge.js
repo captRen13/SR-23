@@ -16,6 +16,11 @@ async function main() {
     return;
   }
 
+  // Allow the native calendar-picker dismissal animation to finish before
+  // presenting another modal. Without this pause, Scriptable can remain
+  // suspended after the picker returns on some iOS/device combinations.
+  await new Promise(resolve => Timer.schedule(1, false, resolve));
+
   const names = selectedCalendars.map(calendar => calendar.title);
   const confirm = new Alert();
   confirm.title = "Confirm Calendar Sources";
