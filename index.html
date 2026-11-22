@@ -172,6 +172,7 @@
  const SRGS=window.SRGSCore;
  if(!SRGS)throw new Error('SRGS Core failed to load.');
  const EPOCH=SRGS.EPOCH_UTC_MS,CYCLE_MS=SRGS.CYCLE_MS;
+ const GROUP=SRGS.CYCLES_PER_GROUP,BLOCK=GROUP*SRGS.GROUPS_PER_BLOCK;
  const $=id=>document.getElementById(id),pad=(n,w=2)=>String(n).padStart(w,'0');
  let current=0,selected=0,gridKey='';
 
