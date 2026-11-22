@@ -467,7 +467,7 @@
    missionPage=0;
    renderMissions();
    const calendarNames=payload.selectedCalendars.map(c=>String(c.title||"")).filter(Boolean).join(", ");
-   $("calendar-import-status").textContent="IMPORT COMPLETE. "+added+" new mission(s), "+updated+" updated. Events: "+imported.length+". Sources: "+(calendarNames||"selected Apple calendars")+". Existing mission statuses were preserved; manual missions were not changed.";
+   $("calendar-import-status").textContent="IMPORT COMPLETE. "+added+" new mission(s), "+updated+" updated. Events: "+imported.length+". Sources: "+(calendarNames||"selected Apple calendars")+". Imported mission statuses were synchronized to their schedule; confirmed ABORTED statuses were retained. Manual missions were not changed.";
   }catch(error){
    $("calendar-import-status").textContent="IMPORT FAILED: "+error.message;
   }finally{
