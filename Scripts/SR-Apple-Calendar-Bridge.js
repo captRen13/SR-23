@@ -1,49 +1,39 @@
 // Star Runner — Apple Calendar Bridge
 // Phase 4B.1 | Read-only calendar export for SR-23
-// Select only the Personal, Family, and Work calendars you want imported.
-// This script reads events and writes a JSON export to Scriptable's iCloud Drive folder.
-// It never creates, edits, or deletes Apple Calendar events.
+// Select the Personal, Family, and Work calendars you want imported.
+// Reads events and writes a JSON export to Scriptable's iCloud Drive folder.
+// This script never creates, edits, or deletes Apple Calendar events.
+//
+// Progress and errors are reported in the Scriptable console.
+// No follow-up alerts are presented, avoiding modal handoff issues.
 
 const LOOKBACK_DAYS = 30;
 const LOOKAHEAD_DAYS = 90;
 const EXPORT_PREFIX = "SR-Apple-Calendar-Export";
 
 async function main() {
+  console.log("SR-23 Calendar Bridge starting.");
+
+  console.log("Opening calendar picker...");
   const selectedCalendars = await Calendar.presentPicker(true);
 
   if (!selectedCalendars || selectedCalendars.length === 0) {
-    await showMessage("No calendars selected", "No data was exported.");
+    console.log("No calendars selected. Nothing exported.");
     return;
   }
 
-  // Allow the native calendar-picker dismissal animation to finish before
-  // presenting another modal. Without this pause, Scriptable can remain
-  // suspended after the picker returns on some iOS/device combinations.
-  await new Promise(resolve => Timer.schedule(1, false, resolve));
-
-  const names = selectedCalendars.map(calendar => calendar.title);
-  const confirm = new Alert();
-  confirm.title = "Confirm Calendar Sources";
-  confirm.message =
-    "Only the calendars listed below will be read:\n\n" +
-    names.map(name => "• " + name).join("\n") +
-    "\n\nThe export includes events from the previous " +
-    LOOKBACK_DAYS + " days through the next " + LOOKAHEAD_DAYS +
-    " days. Apple Calendar will not be modified.";
-  confirm.addAction("Export Events");
-  confirm.addCancelAction("Cancel");
-
-  const choice = await confirm.presentAlert();
-  if (choice !== 0) {
-    await showMessage("Export canceled", "No calendar data was exported.");
-    return;
-  }
+  console.log(
+    "Selected " + selectedCalendars.length + " calendar(s): " +
+    selectedCalendars.map(calendar => calendar.title).join(", ")
+  );
 
   const now = new Date();
   const start = new Date(now.getTime() - LOOKBACK_DAYS * 86400000);
   const end = new Date(now.getTime() + LOOKAHEAD_DAYS * 86400000);
 
+  console.log("Retrieving calendar events...");
   const events = await CalendarEvent.between(start, end, selectedCalendars);
+  console.log("Retrieved " + events.length + " event(s).");
 
   const records = events.map(event => ({
     id: String(event.calendar.identifier) + "::" + String(event.identifier),
@@ -81,6 +71,7 @@ async function main() {
     events: records
   };
 
+  console.log("Preparing JSON export...");
   const fm = FileManager.iCloud();
   const directory = fm.documentsDirectory();
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -89,24 +80,19 @@ async function main() {
 
   fm.writeString(path, JSON.stringify(payload, null, 2));
 
-  const result = new Alert();
-  result.title = "SR-23 Calendar Export Ready";
-  result.message =
-    records.length + " event(s) exported from " +
-    selectedCalendars.length + " calendar(s).\n\n" +
-    "File: " + fileName + "\n\n" +
-    "Saved in Scriptable's iCloud Drive folder. No Apple Calendar events were changed.";
-  result.addAction("Done");
-  await result.presentAlert();
+  console.log("EXPORT SUCCESSFUL.");
+  console.log("Events: " + records.length);
+  console.log("Calendars: " + selectedCalendars.length);
+  console.log("File: " + fileName);
+  console.log("Path: " + path);
+  console.log("Apple Calendar was not modified.");
 }
 
-async function showMessage(title, message) {
-  const alert = new Alert();
-  alert.title = title;
-  alert.message = message;
-  alert.addAction("OK");
-  await alert.presentAlert();
+try {
+  await main();
+} catch (error) {
+  console.error("SR-23 Calendar Bridge failed:");
+  console.error(String(error));
+} finally {
+  Script.complete();
 }
-
-await main();
-Script.complete();
