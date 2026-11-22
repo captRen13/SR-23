@@ -607,7 +607,7 @@
    const countdown=document.createElement('div');countdown.className='mission-countdown';countdown.dataset.countdown=m.id;countdown.textContent=formatDuration(date.getTime()-Date.now());
    const actions=document.createElement('div');actions.className='mission-actions';
    const select=document.createElement('select');select.className='field';select.setAttribute('aria-label','Mission status');select.dataset.statusId=m.id;
-   const statusOptions=m.source==="apple-calendar"?["PLANNED","ACTIVE","COMPLETE","ABORTED"]:["PLANNED","ACTIVE","ON HOLD","COMPLETE","COMPLETED","ABORTED"];
+   const statusOptions=m.source==="apple-calendar"?["PLANNED","ACTIVE","ON HOLD","COMPLETE","ABORTED"]:["PLANNED","ACTIVE","ON HOLD","COMPLETE","COMPLETED","ABORTED"];
    for(const status of statusOptions){const option=document.createElement('option');option.value=status;option.textContent=status;option.selected=m.status===status;select.appendChild(option)}
    const del=document.createElement('button');del.className='action';del.textContent='Delete';del.dataset.deleteId=m.id;actions.append(select,del);card.append(top,meta,objective,countdown,actions);list.appendChild(card);
   }
