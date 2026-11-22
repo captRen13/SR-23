@@ -165,10 +165,13 @@
   </main>
   <footer class="foot">STAR RUNNER 2.1 · GALACTIC STANDARD SRGS 1.0</footer>
 </div>
+<script src="./Core/SRGS-Core.js"></script>
 <script>
 (()=>{
  'use strict';
- const EPOCH=Date.UTC(1968,11,21,12,51,0),CYCLE_MS=100000000,GROUP=100,BLOCK=10000;
+ const SRGS=window.SRGSCore;
+ if(!SRGS)throw new Error('SRGS Core failed to load.');
+ const EPOCH=SRGS.EPOCH_UTC_MS,CYCLE_MS=SRGS.CYCLE_MS;
  const $=id=>document.getElementById(id),pad=(n,w=2)=>String(n).padStart(w,'0');
  let current=0,selected=0,gridKey='';
 
@@ -223,11 +226,13 @@
   renderMissionCountdowns();
  }
  function fromMs(ms){
-  if(!Number.isFinite(ms)||ms<0)throw new Error('Date is before Galactic Epoch 000.');
-  const total=Math.floor(ms/CYCLE_MS),within=ms%CYCLE_MS;
-  const block=Math.floor(total/BLOCK),group=Math.floor((total%BLOCK)/GROUP),cycle=total%GROUP;
-  const interval=Math.floor(within/10000000),segment=Math.floor((within%10000000)/100000),unit=Math.floor((within%100000)/1000),tick=Math.floor((within%1000)/10);
-  return {total,block,group,cycle,within,interval,segment,unit,tick,sd:`${pad(block,3)}.${pad(group)}.${pad(cycle)}`,gst:`${pad(interval)}.${pad(segment)}.${pad(unit)}.${pad(tick)}`};
+  const p=SRGS.fromUnixMilliseconds(EPOCH+ms);
+  return {
+   total:p.totalCycles,block:p.block,group:p.group,cycle:p.cycle,
+   within:p.elapsedMilliseconds%CYCLE_MS,
+   interval:p.interval,segment:p.segment,unit:p.unit,tick:p.tick,
+   sd:p.stardate,gst:p.gst
+  };
  }
  function renderGrid(p){
   const key=`${p.block}.${p.group}.${current}.${selected}`;if(key===gridKey)return;gridKey=key;
