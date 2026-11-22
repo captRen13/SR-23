@@ -206,6 +206,131 @@
     }
   }
 
+  const MISSION_HISTORY_PREFIX = "mission-history::";
+  const MAX_MISSION_REVISIONS = 50;
+
+  function cloneRecord(record) {
+    return record === null || record === undefined ? null : JSON.parse(JSON.stringify(record));
+  }
+
+  function changedMissionFields(before, after) {
+    const keys = new Set(Object.keys(before || {}).concat(Object.keys(after || {})));
+    return Array.from(keys).filter(function (key) {
+      return JSON.stringify((before || {})[key]) !== JSON.stringify((after || {})[key]);
+    }).sort();
+  }
+
+  function inferMissionActor(record, options) {
+    if (options && options.actor) return options.actor;
+    if (record && record.source === "apple-calendar") return "apple-calendar";
+    if (record && record.statusOrigin === "schedule") return "scheduler";
+    return "user";
+  }
+
+  async function writeMissionRecords(records, options, deleting) {
+    if (!Array.isArray(records) || !records.length) return [];
+    const ids = new Set();
+    records.forEach(function (record) {
+      if (!record || typeof record.id !== "string" || !record.id) {
+        throw new TypeError("Every mission must have a non-empty string id.");
+      }
+      if (ids.has(record.id)) throw new Error("Duplicate mission ID in revision batch: " + record.id);
+      ids.add(record.id);
+    });
+
+    const db = await open();
+    try {
+      const transaction = db.transaction([STORES.missions, STORES.system], "readwrite");
+      const done = transactionDone(transaction);
+      const missions = transaction.objectStore(STORES.missions);
+      const system = transaction.objectStore(STORES.system);
+
+      records.forEach(function (record, index) {
+        const historyId = MISSION_HISTORY_PREFIX + record.id;
+        const oldRequest = missions.get(record.id);
+        const historyRequest = system.get(historyId);
+        const state = { oldReady: false, historyReady: false, oldRecord: null, historyRecord: null, written: false };
+
+        function finishRecord() {
+          if (!state.oldReady || !state.historyReady || state.written) return;
+          state.written = true;
+          const before = cloneRecord(state.oldRecord);
+          const after = deleting ? null : cloneRecord(record);
+          const changedFields = changedMissionFields(before, after);
+          if (changedFields.length) {
+            const revisions = state.historyRecord && Array.isArray(state.historyRecord.revisions)
+              ? state.historyRecord.revisions.slice() : [];
+            revisions.push({
+              revisionId: String(Date.now()) + "-" + index + "-" + Math.random().toString(16).slice(2),
+              changedAt: new Date().toISOString(),
+              actor: inferMissionActor(record, options),
+              action: deleting ? "deleted" : before ? "updated" : "created",
+              changedFields: changedFields,
+              before: before,
+              after: after
+            });
+            system.put({
+              id: historyId,
+              missionId: record.id,
+              revisions: revisions.slice(-MAX_MISSION_REVISIONS),
+              updatedAt: new Date().toISOString()
+            });
+          }
+          if (deleting) missions.delete(record.id);
+          else missions.put(record);
+        }
+
+        oldRequest.onsuccess = function () {
+          state.oldRecord = oldRequest.result || null;
+          state.oldReady = true;
+          finishRecord();
+        };
+        historyRequest.onsuccess = function () {
+          state.historyRecord = historyRequest.result || null;
+          state.historyReady = true;
+          finishRecord();
+        };
+      });
+
+      await done;
+      return records;
+    } finally {
+      db.close();
+    }
+  }
+
+  async function putMission(record, options) {
+    await writeMissionRecords([record], options || {}, false);
+    return record;
+  }
+
+  async function putMissions(records, options) {
+    return writeMissionRecords(records, options || {}, false);
+  }
+
+  async function removeMission(id, options) {
+    if (typeof id !== "string" || !id) throw new TypeError("A mission ID is required.");
+    const existing = await getAll(STORES.missions);
+    const mission = existing.find(function (record) { return record.id === id; });
+    if (!mission) return false;
+    await writeMissionRecords([mission], options || { actor: "user" }, true);
+    return true;
+  }
+
+  async function getMissionHistory(id) {
+    if (typeof id !== "string" || !id) throw new TypeError("A mission ID is required.");
+    const db = await open();
+    try {
+      const transaction = db.transaction([STORES.system], "readonly");
+      const done = transactionDone(transaction);
+      const record = await requestResult(transaction.objectStore(STORES.system).get(MISSION_HISTORY_PREFIX + id));
+      await done;
+      return record && Array.isArray(record.revisions) ? record.revisions.slice().reverse() : [];
+    } finally {
+      db.close();
+    }
+  }
+
   async function createBackup() {
     const db = await open();
     try {
@@ -368,6 +493,10 @@
     getAll: getAll,
     put: put,
     putMany: putMany,
+    putMission: putMission,
+    putMissions: putMissions,
+    getMissionHistory: getMissionHistory,
+    removeMission: removeMission,
     remove: remove,
     createBackup: createBackup,
     validateBackup: validateBackup,
