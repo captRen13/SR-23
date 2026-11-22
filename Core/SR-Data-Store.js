@@ -252,6 +252,66 @@
     }
   }
 
+  async function audit() {
+    const db = await open();
+    try {
+      const storeNames = Object.keys(STORES).map(function (name) { return STORES[name]; });
+      const transaction = db.transaction(storeNames, "readonly");
+      const done = transactionDone(transaction);
+      const reads = storeNames.map(function (storeName) {
+        return requestResult(transaction.objectStore(storeName).getAll()).then(function (records) {
+          return [storeName, records];
+        });
+      });
+      const entries = await Promise.all(reads);
+      await done;
+
+      const counts = {};
+      const errors = [];
+      const warnings = [];
+      entries.forEach(function (entry) {
+        const storeName = entry[0];
+        const records = entry[1];
+        counts[storeName] = records.length;
+        records.forEach(function (record, index) {
+          const label = storeName + " record " + (index + 1);
+          if (!record || typeof record !== "object" || Array.isArray(record) ||
+              typeof record.id !== "string" || !record.id.trim()) {
+            errors.push(label + " has an invalid record ID or structure.");
+            return;
+          }
+          if (storeName === STORES.missions) {
+            if (typeof record.title !== "string" || !record.title.trim()) {
+              errors.push(label + " is missing a valid mission title.");
+            }
+            if (record.departure === undefined || record.departure === null || record.departure === "") {
+              warnings.push(label + " has no departure date.");
+            } else if (typeof record.departure !== "string" ||
+                !Number.isFinite(Date.parse(record.departure))) {
+              errors.push(label + " has an invalid departure date.");
+            }
+            const allowedStatuses = ["PLANNED", "ACTIVE", "ON HOLD", "COMPLETED", "ABORTED"];
+            if (record.status === undefined || record.status === null || record.status === "") {
+              warnings.push(label + " has no mission status.");
+            } else if (typeof record.status !== "string" || !allowedStatuses.includes(record.status)) {
+              errors.push(label + " has an unsupported mission status.");
+            }
+          }
+        });
+      });
+
+      return {
+        healthy: errors.length === 0,
+        checkedAt: new Date().toISOString(),
+        counts: counts,
+        errors: errors,
+        warnings: warnings
+      };
+    } finally {
+      db.close();
+    }
+  }
+
   async function initialize() {
     const db = await open();
     try {
@@ -279,6 +339,7 @@
     remove: remove,
     createBackup: createBackup,
     validateBackup: validateBackup,
-    restoreBackup: restoreBackup
+    restoreBackup: restoreBackup,
+    audit: audit
   };
 })(typeof globalThis !== "undefined" ? globalThis : this);
