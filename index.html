@@ -23,6 +23,13 @@
     .note{font-size:12px;line-height:1.55;color:var(--muted)}.bigdate{font-size:30px;font-weight:750;font-variant-numeric:tabular-nums;margin:10px 0}.foot{text-align:center;color:var(--muted);font-size:10px;letter-spacing:.1em;margin-top:18px}.btnrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.action{cursor:pointer}.action:active{transform:scale(.98)}
   .calendar-grid{display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:5px;margin-top:15px}.cell{padding:8px 1px;text-align:center;border:1px solid var(--line);border-radius:7px;font-size:11px;color:var(--muted);background:#0d1624;min-width:0}.cell.past{background:#172638;color:#b3c1d2}.cell.current{border:2px solid var(--accent2);color:#fff;font-weight:800}.cell.selected{outline:2px solid #5b9bd3;outline-offset:1px;background:#24496b;color:#fff;font-weight:800}.navrow{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:10px}.navrow .action{padding:11px 4px}.jump{display:flex;gap:8px;margin-top:10px}.field{width:100%;min-width:0;background:#0b1421;border:1px solid var(--line);border-radius:10px;color:var(--text);padding:11px;font-size:14px}.action.primary{background:#1b3550;border-color:#5c9bd0}.error{color:#ffb4a9;margin-top:7px}.result{margin-top:10px;padding:12px;border:1px solid var(--line);border-radius:12px;background:#0b1421}.upcoming{background:#0d1624}
 .field-label{display:block;font-size:10px;letter-spacing:.12em;color:var(--muted);font-weight:700;margin:12px 0 6px}
+.systems-panel{padding:0;overflow:hidden}
+.systems-details>summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px 18px;cursor:pointer}
+.systems-details>summary::-webkit-details-marker{display:none}
+.systems-subtitle{display:block;font-size:11px;color:var(--muted);margin-top:5px}
+.systems-toggle{width:27px;height:27px;display:grid;place-items:center;border:1px solid var(--line);border-radius:50%;font-size:18px;color:var(--accent2);flex:none}
+.systems-details[open] .systems-toggle{transform:rotate(45deg)}
+.systems-content{padding:0 18px 18px}
 .mission-card{background:#0b1421;border:1px solid var(--line);border-radius:14px;padding:14px;margin-top:10px}
 .mission-title{font-size:16px;font-weight:750;overflow-wrap:anywhere}
 .mission-meta{font-size:11px;color:var(--muted);line-height:1.6;margin-top:6px}
@@ -131,26 +138,35 @@
       <div class="between"><strong>Mission Register</strong><span class="muted" id="mission-sort-label">Sorted by departure</span></div>
       <div id="mission-list" aria-live="polite"></div>
     </section>
-    <section class="panel">
-      <div class="label">APPLE CALENDAR · MISSION IMPORT</div>
-      <div style="font-weight:700;margin-top:8px">Import Calendar Events as Missions</div>
-      <p class="note">Import a Scriptable Apple Calendar JSON export. Events become mission orders; existing imported events are updated on reimport, while manually created missions remain untouched.</p>
-      <div class="btnrow">
-        <button class="action primary" id="import-apple-calendar" disabled>Import Calendar Missions</button>
-        <input id="apple-calendar-file" type="file" accept="application/json,.json" class="hidden" aria-label="Choose Apple Calendar export">
-      </div>
-      <div class="note" id="calendar-import-status" role="status" style="margin-top:10px">Calendar import will be available when the local data vault is online.</div>
-      <div class="label">DATA VAULT · BACKUP & RECOVERY</div>
-      <div style="font-weight:700;margin-top:8px">Local Data Backup</div>
-      <p class="note">Export a copy of all Star Runner records stored on this device. Keep the backup somewhere safe, such as iCloud Drive or Files. Backups are not uploaded automatically.</p>
-      <div class="btnrow">
-        <button class="action primary" id="export-backup" disabled>Export Backup</button>
-        <button class="action" id="choose-backup" disabled>Restore from File</button>
-        <input id="backup-file" type="file" accept="application/json,.json" class="hidden" aria-label="Choose Star Runner backup file">
-      </div>
-      <div class="btnrow"><button class="action" id="verify-vault" disabled>Verify Vault Integrity</button></div>
-      <div class="note" id="integrity-status" role="status" style="margin-top:10px">Integrity check will be available when the local data vault is online.</div>
-      <div class="note" id="backup-status" role="status" style="margin-top:10px">Backup tools will be available when the local data vault is online.</div>
+    <section class="panel systems-panel">
+      <details class="systems-details">
+        <summary>
+          <span><span class="label">MISSION SYSTEMS</span><span class="systems-subtitle">Calendar import · Data backup · Integrity check</span></span>
+          <span class="systems-toggle" aria-hidden="true">+</span>
+        </summary>
+        <div class="systems-content">
+          <div class="label">APPLE CALENDAR · MISSION IMPORT</div>
+          <div style="font-weight:700;margin-top:8px">Import Calendar Events as Missions</div>
+          <p class="note">Import a Scriptable Apple Calendar JSON export. Events become mission orders; existing imported events are updated on reimport, while manually created missions remain untouched.</p>
+          <div class="btnrow">
+            <button class="action primary" id="import-apple-calendar" disabled>Import Calendar Missions</button>
+            <input id="apple-calendar-file" type="file" accept="application/json,.json" class="hidden" aria-label="Choose Apple Calendar export">
+          </div>
+          <div class="note" id="calendar-import-status" role="status" style="margin-top:10px">Calendar import will be available when the local data vault is online.</div>
+          <div class="rule"></div>
+          <div class="label">DATA VAULT · BACKUP & RECOVERY</div>
+          <div style="font-weight:700;margin-top:8px">Local Data Backup</div>
+          <p class="note">Export a copy of all Star Runner records stored on this device. Keep the backup somewhere safe, such as iCloud Drive or Files. Backups are not uploaded automatically.</p>
+          <div class="btnrow">
+            <button class="action primary" id="export-backup" disabled>Export Backup</button>
+            <button class="action" id="choose-backup" disabled>Restore from File</button>
+            <input id="backup-file" type="file" accept="application/json,.json" class="hidden" aria-label="Choose Star Runner backup file">
+          </div>
+          <div class="btnrow"><button class="action" id="verify-vault" disabled>Verify Vault Integrity</button></div>
+          <div class="note" id="integrity-status" role="status" style="margin-top:10px">Integrity check will be available when the local data vault is online.</div>
+          <div class="note" id="backup-status" role="status" style="margin-top:10px">Backup tools will be available when the local data vault is online.</div>
+        </div>
+      </details>
     </section>
   </main>
 
