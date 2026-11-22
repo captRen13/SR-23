@@ -108,7 +108,7 @@
     <section class="panel">
       <div class="label">STAR RUNNER · MISSION CONTROL</div>
       <div class="bigdate" style="font-size:25px">Mission Operations</div>
-      <p class="note">Create and manage vessel missions. Mission records are stored locally on this device and are not uploaded to GitHub.</p>
+      <p class="note">Create and manage vessel missions. Records are stored locally on this device using the Star Runner data vault and remain available offline. They are not uploaded to GitHub.</p>
       <div class="grid">
         <div class="metric"><div class="k">TOTAL MISSIONS</div><div class="v" id="mission-total">0</div></div>
         <div class="metric"><div class="k">UPCOMING</div><div class="v" id="mission-upcoming">0</div></div>
@@ -166,6 +166,7 @@
   <footer class="foot">STAR RUNNER 2.1 · GALACTIC STANDARD SRGS 1.0</footer>
 </div>
 <script src="./Core/SRGS-Core.js"></script>
+<script src="./Core/SR-Data-Store.js"></script>
 <script>
 (()=>{
  'use strict';
@@ -176,28 +177,68 @@
  const $=id=>document.getElementById(id),pad=(n,w=2)=>String(n).padStart(w,'0');
  let current=0,selected=0,gridKey='';
 
- const MISSION_KEY='star-runner-missions-v1';
  let missions=[];
- function loadMissions(){try{const raw=localStorage.getItem(MISSION_KEY);const parsed=raw?JSON.parse(raw):[];missions=Array.isArray(parsed)?parsed.filter(m=>m&&typeof m.id==='string'&&typeof m.title==='string'):[]}catch(e){missions=[]}}
- function saveMissions(){try{localStorage.setItem(MISSION_KEY,JSON.stringify(missions));return true}catch(e){$('mission-error').textContent='Unable to save mission data on this device. Check available storage.';return false}}
- function localDateInput(date){const d=new Date(date.getTime()-date.getTimezoneOffset()*60000);return d.toISOString().slice(0,16)}
- function initMissionControl(){
-  loadMissions();$('mission-departure').value=localDateInput(new Date(Date.now()+86400000));
-  $('create-mission').addEventListener('click',createMission);
-  $('clear-mission-form').addEventListener('click',()=>{$('mission-title').value='';$('mission-destination').value='';$('mission-objective').value='';$('mission-departure').value=localDateInput(new Date(Date.now()+86400000));$('mission-error').textContent=''});
-  $('mission-list').addEventListener('change',e=>{if(e.target.matches('[data-status-id]')){const m=missions.find(x=>x.id===e.target.dataset.statusId);if(m){m.status=e.target.value;saveMissions();renderMissions()}}});
-  $('mission-list').addEventListener('click',e=>{const b=e.target.closest('[data-delete-id]');if(b){const m=missions.find(x=>x.id===b.dataset.deleteId);if(m&&confirm('Delete mission "'+m.title+'"?')){missions=missions.filter(x=>x.id!==m.id);saveMissions();renderMissions()}}});
-  renderMissions();
+ let missionStorageReady=false;
+ function showMissionStorageError(error){
+  missionStorageReady=false;
+  $("mission-error").textContent="MISSION DATA VAULT UNAVAILABLE: "+(error&&error.message?error.message:"Unknown storage error")+". Existing records have not been intentionally deleted. Refresh and retry when storage is available.";
+  $("create-mission").disabled=true;
+  $("mission-list").innerHTML='<div class="empty-state">Mission storage could not be opened. No mission changes can be made until the data vault is available.</div>';
  }
- function createMission(){
-  $('mission-error').textContent='';
-  const title=$('mission-title').value.trim(),destination=$('mission-destination').value.trim(),raw=$('mission-departure').value,objective=$('mission-objective').value.trim(),departure=new Date(raw);
-  if(!title){$('mission-error').textContent='Enter a mission designation.';return}
-  if(!raw||!Number.isFinite(departure.getTime())){$('mission-error').textContent='Choose a valid departure date and time.';return}
-  if(departure.getTime()<EPOCH){$('mission-error').textContent='Departure cannot be before Galactic Epoch 000.';return}
-  const record={id:(crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random().toString(16).slice(2)),title,destination,departure:departure.toISOString(),objective,status:'PLANNED',createdAt:new Date().toISOString()};
-  missions.push(record);if(!saveMissions())return;
-  $('mission-title').value='';$('mission-destination').value='';$('mission-objective').value='';$('mission-departure').value=localDateInput(new Date(Date.now()+86400000));renderMissions();
+ function localDateInput(date){const d=new Date(date.getTime()-date.getTimezoneOffset()*60000);return d.toISOString().slice(0,16)}
+ async function initMissionControl(){
+  $("mission-error").textContent="Connecting to local mission data vault…";
+  try{
+   const result=await StarRunnerDataStore.initialize();
+   missions=await StarRunnerDataStore.getAll("missions");
+   missionStorageReady=true;
+   $("create-mission").disabled=false;
+   if(result.migration.migrated){
+    $("mission-error").textContent="Legacy mission records migrated successfully ("+result.migration.count+"). Original backup retained.";
+   }else if(result.migration.reason==="already-migrated"){
+    $("mission-error").textContent="Local data vault online. Legacy migration already completed; recovery backup retained.";
+   }else{
+    $("mission-error").textContent="Local data vault online. No legacy mission records were found.";
+   }
+   $("mission-departure").value=localDateInput(new Date(Date.now()+86400000));
+   $("create-mission").addEventListener("click",createMission);
+   $("clear-mission-form").addEventListener("click",()=>{$("mission-title").value="";$("mission-destination").value="";$("mission-objective").value="";$("mission-departure").value=localDateInput(new Date(Date.now()+86400000));$("mission-error").textContent=""});
+   $("mission-list").addEventListener("change",async e=>{
+    if(!e.target.matches("[data-status-id]"))return;
+    const m=missions.find(x=>x.id===e.target.dataset.statusId);
+    if(!m)return;
+    const previous=m.status;
+    m.status=e.target.value;
+    try{await StarRunnerDataStore.put("missions",m);renderMissions()}
+    catch(error){m.status=previous;renderMissions();$("mission-error").textContent="Status update failed: "+error.message}
+   });
+   $("mission-list").addEventListener("click",async e=>{
+    const button=e.target.closest("[data-delete-id]");
+    if(!button)return;
+    const m=missions.find(x=>x.id===button.dataset.deleteId);
+    if(!m||!confirm('Delete mission "'+m.title+'"?'))return;
+    try{await StarRunnerDataStore.remove("missions",m.id);missions=missions.filter(x=>x.id!==m.id);renderMissions()}
+    catch(error){$("mission-error").textContent="Mission deletion failed: "+error.message}
+   });
+   renderMissions();
+  }catch(error){showMissionStorageError(error)}
+ }
+ async function createMission(){
+  $("mission-error").textContent="";
+  if(!missionStorageReady){$("mission-error").textContent="Mission data vault is not ready. No mission was created.";return}
+  const title=$("mission-title").value.trim(),destination=$("mission-destination").value.trim(),raw=$("mission-departure").value,objective=$("mission-objective").value.trim(),departure=new Date(raw);
+  if(!title){$("mission-error").textContent="Enter a mission designation.";return}
+  if(!raw||!Number.isFinite(departure.getTime())){$("mission-error").textContent="Choose a valid departure date and time.";return}
+  if(departure.getTime()<EPOCH){$("mission-error").textContent="Departure cannot be before Galactic Epoch 000.";return}
+  const record={id:(crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random().toString(16).slice(2)),title,destination,departure:departure.toISOString(),objective,status:"PLANNED",createdAt:new Date().toISOString()};
+  const button=$("create-mission");button.disabled=true;
+  try{
+   await StarRunnerDataStore.put("missions",record);
+   missions.push(record);
+   $("mission-title").value="";$("mission-destination").value="";$("mission-objective").value="";$("mission-departure").value=localDateInput(new Date(Date.now()+86400000));
+   renderMissions();
+  }catch(error){$("mission-error").textContent="Mission could not be saved: "+error.message}
+  finally{button.disabled=false}
  }
  function formatDuration(ms){
   if(ms<=0)return 'DEPARTURE WINDOW REACHED';
