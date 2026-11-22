@@ -222,6 +222,7 @@
  let current=0,selected=0,gridKey='';
 
  let missions=[];
+ let missionPage=0;
  let missionStorageReady=false;
  function showMissionStorageError(error){
   missionStorageReady=false;
@@ -461,6 +462,7 @@
    const added=imported.length-updated;
    await StarRunnerDataStore.putMany("missions",imported);
    missions=await StarRunnerDataStore.getAll("missions");
+   missionPage=0;
    renderMissions();
    const calendarNames=payload.selectedCalendars.map(c=>String(c.title||"")).filter(Boolean).join(", ");
    $("calendar-import-status").textContent="IMPORT COMPLETE. "+added+" new mission(s), "+updated+" updated. Events: "+imported.length+". Sources: "+(calendarNames||"selected Apple calendars")+". Existing mission statuses were preserved; manual missions were not changed.";
@@ -526,6 +528,7 @@
    await StarRunnerDataStore.put("missions",record);
    missions.push(record);
    $("mission-title").value="";$("mission-destination").value="";$("mission-objective").value="";$("mission-departure").value=localDateInput(new Date(Date.now()+86400000));
+   missionPage=0;
    renderMissions();
   }catch(error){$("mission-error").textContent="Mission could not be saved: "+error.message}
   finally{button.disabled=false}
@@ -538,10 +541,21 @@
  function renderMissionCountdowns(){document.querySelectorAll('[data-countdown]').forEach(el=>{const m=missions.find(x=>x.id===el.dataset.countdown);if(m)el.textContent=formatDuration(new Date(m.departure).getTime()-Date.now())})}
  function renderMissions(){
   if(!$('mission-list'))return;
-  const list=$('mission-list'),sorted=[...missions].sort((a,b)=>new Date(a.departure)-new Date(b.departure));
-  $('mission-total').textContent=String(missions.length);$('mission-upcoming').textContent=String(missions.filter(m=>m.status==='PLANNED'&&new Date(m.departure)>Date.now()).length);list.replaceChildren();
+  const list=$('mission-list'),now=Date.now();
+  const sorted=[...missions].sort((a,b)=>{
+   const at=Date.parse(a.departure),bt=Date.parse(b.departure),af=at>=now,bf=bt>=now;
+   if(af!==bf)return af?-1:1;
+   return af?at-bt:bt-at;
+  });
+  $('mission-total').textContent=String(missions.length);$('mission-upcoming').textContent=String(missions.filter(m=>m.status==='PLANNED'&&new Date(m.departure)>now).length);list.replaceChildren();
   if(!sorted.length){const empty=document.createElement('div');empty.className='empty-state';empty.textContent='No missions in the register. Create your first mission order above.';list.appendChild(empty);return}
-  for(const m of sorted){
+  const firstPageSize=5,pageSize=10;
+  const totalPages=sorted.length<=firstPageSize?1:1+Math.ceil((sorted.length-firstPageSize)/pageSize);
+  missionPage=Math.max(0,Math.min(missionPage,totalPages-1));
+  const start=missionPage===0?0:firstPageSize+(missionPage-1)*pageSize;
+  const end=missionPage===0?Math.min(firstPageSize,sorted.length):Math.min(start+pageSize,sorted.length);
+  const visible=sorted.slice(start,end);
+  for(const m of visible){
    const card=document.createElement('article');card.className='mission-card';
    const top=document.createElement('div');top.className='between';
    const title=document.createElement('div');title.className='mission-title';title.textContent=m.title;
@@ -554,6 +568,21 @@
    const select=document.createElement('select');select.className='field';select.setAttribute('aria-label','Mission status');select.dataset.statusId=m.id;
    for(const status of ['PLANNED','ACTIVE','ON HOLD','COMPLETED','ABORTED']){const option=document.createElement('option');option.value=status;option.textContent=status;option.selected=m.status===status;select.appendChild(option)}
    const del=document.createElement('button');del.className='action';del.textContent='Delete';del.dataset.deleteId=m.id;actions.append(select,del);card.append(top,meta,objective,countdown,actions);list.appendChild(card);
+  }
+  if(totalPages>1){
+   const pager=document.createElement('div');pager.className='btnrow';pager.style.alignItems='center';pager.style.justifyContent='space-between';
+   const label=document.createElement('span');label.className='note';
+   label.textContent='Showing '+(start+1)+'–'+end+' of '+sorted.length+' · Page '+(missionPage+1)+' of '+totalPages;
+   const controls=document.createElement('div');controls.className='btnrow';controls.style.marginTop='0';
+   const previous=document.createElement('button');previous.className='action';previous.textContent='‹ Previous';previous.disabled=missionPage===0;
+   previous.addEventListener('click',()=>{missionPage--;renderMissions()});
+   const next=document.createElement('button');next.className='action primary';next.textContent='Next ›';next.disabled=missionPage>=totalPages-1;
+   next.addEventListener('click',()=>{missionPage++;renderMissions()});
+   controls.append(previous,next);pager.append(label,controls);list.appendChild(pager);
+  }else{
+   const label=document.createElement('div');label.className='note';label.style.marginTop='12px';
+   label.textContent='Showing '+sorted.length+' mission(s) · Upcoming departures first.';
+   list.appendChild(label);
   }
   renderMissionCountdowns();
  }
