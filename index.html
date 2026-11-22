@@ -30,7 +30,7 @@
 .systems-toggle{width:27px;height:27px;display:grid;place-items:center;border:1px solid var(--line);border-radius:50%;font-size:18px;color:var(--accent2);flex:none}
 .systems-details[open] .systems-toggle{transform:rotate(45deg)}
 .systems-content{padding:0 18px 18px}
-.mission-card{background:#0b1421;border:1px solid var(--line);border-radius:14px;padding:14px;margin-top:10px}
+.mission-card{background:#0b1421;border:1px solid var(--line);border-radius:14px;padding:14px;margin-top:10px}.mission-card.conflict-card,.reconcile-card.conflict-card{border:1px solid #ef4444;background:linear-gradient(145deg,#351416,#1b1015);box-shadow:0 0 0 1px #ef444455,0 0 18px #ef444422}.conflict-warning{color:#ff8585;font-weight:700}
 .mission-title{font-size:16px;font-weight:750;overflow-wrap:anywhere}
 .mission-meta{font-size:11px;color:var(--muted);line-height:1.6;margin-top:6px}
 .mission-countdown{font-size:21px;font-weight:750;font-variant-numeric:tabular-nums;margin-top:10px}
@@ -211,7 +211,7 @@
   <footer class="foot">STAR RUNNER 2.1 · GALACTIC STANDARD SRGS 1.0</footer>
 </div>
 <script src="./Core/SRGS-Core.js"></script>
-<script src="./Core/SR-Data-Store.js?v=1.0.6"></script>
+<script src="./Core/SR-Data-Store.js?v=1.0.7"></script>
 <script>
 (()=>{
  'use strict';
@@ -225,6 +225,7 @@
  let missions=[];
  let pendingCalendarReconciliation=null;
  let missionPage=0;
+ let missionConflictIds=new Set();
  let missionStorageReady=false;
  function showMissionStorageError(error){
   missionStorageReady=false;
@@ -263,8 +264,8 @@
     if(!m)return;
     const snapshot=JSON.parse(JSON.stringify(m)),previous=m.status,previousOrigin=m.statusOrigin,previousUpdatedAt=m.statusUpdatedAt;
     m.status=e.target.value;m.statusOrigin="user";m.statusUpdatedAt=new Date().toISOString();
-    try{await StarRunnerDataStore.putMissionIfUnchanged(m,snapshot,{actor:"user"});renderMissions()}
-    catch(error){m.status=previous;m.statusOrigin=previousOrigin;m.statusUpdatedAt=previousUpdatedAt;if(error.message.startsWith("MISSION CONFLICT:"))missions=await StarRunnerDataStore.getAll("missions");renderMissions();$("mission-error").textContent="Status update failed: "+error.message}
+    try{await StarRunnerDataStore.putMissionIfUnchanged(m,snapshot,{actor:"user"});missionConflictIds.delete(m.id);$("mission-error").textContent="";$("mission-error").classList.remove("conflict-warning");renderMissions()}
+    catch(error){m.status=previous;m.statusOrigin=previousOrigin;m.statusUpdatedAt=previousUpdatedAt;if(error.message.startsWith("MISSION CONFLICT:")){if(error.missionId)missionConflictIds.add(error.missionId);missions=await StarRunnerDataStore.getAll("missions")}renderMissions();$("mission-error").textContent=error.message.startsWith("MISSION CONFLICT:")?"⚠ CONFLICT DETECTED — "+error.message:"Status update failed: "+error.message;$("mission-error").classList.toggle("conflict-warning",error.message.startsWith("MISSION CONFLICT:"))}
    });
    $("mission-list").addEventListener("click",async e=>{
      const historyButton=e.target.closest("[data-history-id]");
@@ -346,13 +347,13 @@
     if(!items.length)return;
     const label=document.createElement("div");label.className="label";label.style.marginTop="14px";label.textContent=title;output.appendChild(label);
     items.forEach((entry,index)=>{
-     const card=document.createElement("div");card.className="mission-meta";card.style.padding="10px 0";
+     const card=document.createElement("div");card.className="mission-meta reconcile-card"+(entry.conflict?" conflict-card":"");card.style.padding="10px";
      const event=entry.event||entry.mission;
      const when=new Date(event.startDate||event.departure);
      const name=String(event.title||"Untitled Event");
      const calendar=String(event.calendarTitle||event.sourceCalendarTitle||"Calendar");
      const description=document.createElement("div");
-     description.textContent=name+" · "+(Number.isFinite(when.getTime())?when.toLocaleString():"Date unavailable")+" · "+calendar+(entry.possibleReschedule?" · POSSIBLE RESCHEDULE — verify manually":"");
+     description.textContent=(entry.conflict?"⚠ CONFLICT — ":"")+name+" · "+(Number.isFinite(when.getTime())?when.toLocaleString():"Date unavailable")+" · "+calendar+(entry.possibleReschedule?" · POSSIBLE RESCHEDULE — verify manually":"");if(entry.conflict)description.classList.add("conflict-warning");
      card.appendChild(description);
      if(entry.resolved){const done=document.createElement("div");done.className="note";done.textContent=entry.resolution||"Reviewed; no change applied.";card.appendChild(done)}
      else{
@@ -560,7 +561,7 @@
  }
  $("preview-calendar-reconciliation").addEventListener("click",()=>$("reconcile-calendar-file").click());
  $("reconcile-calendar-file").addEventListener("change",event=>previewCalendarReconciliation(event.target.files&&event.target.files[0]));
- $("reconciliation-results").addEventListener("click",event=>{const button=event.target.closest("[data-reconcile-action]");if(!button)return;applyCalendarReconciliationAction(button.dataset.reconcileAction,button.dataset.reconcileType,Number(button.dataset.reconcileIndex)).catch(async error=>{if(error.message.startsWith("MISSION CONFLICT:")){missions=await StarRunnerDataStore.getAll("missions");renderMissions();$("reconciliation-status").textContent="CONFLICT DETECTED. The mission changed after this preview. No update was applied. Generate a fresh calendar preview and review the latest values. "+error.message}else $("reconciliation-status").textContent="ACTION FAILED: "+error.message})});
+ $("reconciliation-results").addEventListener("click",event=>{const button=event.target.closest("[data-reconcile-action]");if(!button)return;applyCalendarReconciliationAction(button.dataset.reconcileAction,button.dataset.reconcileType,Number(button.dataset.reconcileIndex)).catch(async error=>{if(error.message.startsWith("MISSION CONFLICT:")){const type=button.dataset.reconcileType,index=Number(button.dataset.reconcileIndex),items=type==="new"?pendingCalendarReconciliation.added:type==="changed"?pendingCalendarReconciliation.changed:pendingCalendarReconciliation.missing,entry=items[index];if(entry){entry.conflict=true;if(entry.mission)missionConflictIds.add(entry.mission.id);else if(error.missionId)missionConflictIds.add(error.missionId)}missions=await StarRunnerDataStore.getAll("missions");renderMissions();renderReconciliationResults();$("reconciliation-status").textContent="⚠ CONFLICT DETECTED. This event changed after the preview. No update was applied. Generate a fresh preview and review the latest values. "+error.message;$("reconciliation-status").classList.add("conflict-warning")}else $("reconciliation-status").textContent="ACTION FAILED: "+error.message})});
  $("import-apple-calendar").addEventListener("click",()=>$("apple-calendar-file").click());
  $("apple-calendar-file").addEventListener("change",event=>importAppleCalendarFile(event.target.files&&event.target.files[0]));
  $("verify-vault").addEventListener("click",runIntegrityCheck);
@@ -631,18 +632,18 @@
   const end=missionPage===0?Math.min(firstPageSize,sorted.length):Math.min(start+pageSize,sorted.length);
   const visible=sorted.slice(start,end);
   for(const m of visible){
-   const card=document.createElement('article');card.className='mission-card';
+   const card=document.createElement('article');card.className='mission-card'+(missionConflictIds.has(m.id)?' conflict-card':'');
    const top=document.createElement('div');top.className='between';
    const title=document.createElement('div');title.className='mission-title';title.textContent=m.title;
-   const pill=document.createElement('span');pill.className='status-pill';pill.textContent=m.status;top.append(title,pill);
+   const pill=document.createElement('span');pill.className='status-pill';pill.textContent=m.status==='COMPLETED'?'COMPLETE':m.status;top.append(title,pill);
    const date=new Date(m.departure),sd=fromMs(date.getTime()-EPOCH),meta=document.createElement('div');meta.className='mission-meta';
    meta.textContent=(m.destination?'DESTINATION: '+m.destination+' · ':'')+'DEPARTURE: '+date.toLocaleString()+' · STARDATE: '+sd.sd+' / GST '+sd.gst;
    const objective=document.createElement('p');objective.className='note';objective.textContent=m.objective||'No objective notes recorded.';
    const countdown=document.createElement('div');countdown.className='mission-countdown';countdown.dataset.countdown=m.id;countdown.textContent=formatDuration(date.getTime()-Date.now());
    const actions=document.createElement('div');actions.className='mission-actions';
    const select=document.createElement('select');select.className='field';select.setAttribute('aria-label','Mission status');select.dataset.statusId=m.id;
-   const statusOptions=m.source==="apple-calendar"?["PLANNED","ACTIVE","ON HOLD","COMPLETE","ABORTED"]:["PLANNED","ACTIVE","ON HOLD","COMPLETE","COMPLETED","ABORTED"];
-   for(const status of statusOptions){const option=document.createElement('option');option.value=status;option.textContent=status;option.selected=m.status===status;select.appendChild(option)}
+   const statusOptions=["PLANNED","ACTIVE","ON HOLD","COMPLETE","ABORTED"];const displayedStatus=m.status==="COMPLETED"?"COMPLETE":m.status;
+   for(const status of statusOptions){const option=document.createElement('option');option.value=status;option.textContent=status;option.selected=displayedStatus===status;select.appendChild(option)}
    const historyButton=document.createElement("button");historyButton.className="action";historyButton.textContent="History";historyButton.dataset.historyId=m.id;const del=document.createElement("button");del.className="action";del.textContent="Delete";del.dataset.deleteId=m.id;actions.append(select,historyButton,del);card.append(top,meta,objective,countdown,actions);list.appendChild(card);
   }
   if(totalPages>1){
