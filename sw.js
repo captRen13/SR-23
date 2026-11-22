@@ -1,7 +1,7 @@
 const CACHE_PREFIX='star-runner-';
-const CACHE_VERSION='2.1.0';
+const CACHE_VERSION='2.2.0';
 const CACHE=CACHE_PREFIX+CACHE_VERSION;
-const APP_SHELL=['./','./index.html','./manifest.json','./icon-192.png','./icon-512.png'];
+const APP_SHELL=['./','./index.html','./manifest.json','./Core/SRGS-Core.js','./icon-192.png','./icon-512.png'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(APP_SHELL))));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>(key.startsWith(CACHE_PREFIX)||key.startsWith('sr23-chronometer-'))&&key!==CACHE).map(key=>caches.delete(key)))).then(()=>self.clients.claim())));
 self.addEventListener('message',event=>{if(event.data&&event.data.type==='SKIP_WAITING')self.skipWaiting()});
