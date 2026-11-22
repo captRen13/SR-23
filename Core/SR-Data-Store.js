@@ -1,0 +1,221 @@
+// Star Runner Data Store
+// Version: 1.0.0
+// Local-first IndexedDB foundation for Star Runner 2.1.
+
+(function (root) {
+  "use strict";
+
+  const DB_NAME = "star-runner-data";
+  const DB_VERSION = 1;
+  const LEGACY_MISSION_KEY = "star-runner-missions-v1";
+  const MIGRATION_KEY = "migration:localStorage-missions-v1";
+
+  const STORES = {
+    vessels: "vessels",
+    crew: "crew",
+    missions: "missions",
+    calendar: "calendar",
+    system: "system"
+  };
+
+  function requestResult(request) {
+    return new Promise(function (resolve, reject) {
+      request.onsuccess = function () { resolve(request.result); };
+      request.onerror = function () {
+        reject(request.error || new Error("IndexedDB request failed."));
+      };
+    });
+  }
+
+  function transactionDone(transaction) {
+    return new Promise(function (resolve, reject) {
+      transaction.oncomplete = function () { resolve(); };
+      transaction.onerror = function () {
+        reject(transaction.error || new Error("IndexedDB transaction failed."));
+      };
+      transaction.onabort = function () {
+        reject(transaction.error || new Error("IndexedDB transaction aborted."));
+      };
+    });
+  }
+
+  function open() {
+    return new Promise(function (resolve, reject) {
+      if (!root.indexedDB) {
+        reject(new Error("IndexedDB is not available in this browser."));
+        return;
+      }
+
+      const request = root.indexedDB.open(DB_NAME, DB_VERSION);
+
+      request.onupgradeneeded = function (event) {
+        const db = event.target.result;
+        Object.keys(STORES).forEach(function (name) {
+          const storeName = STORES[name];
+          if (!db.objectStoreNames.contains(storeName)) {
+            db.createObjectStore(storeName, { keyPath: "id" });
+          }
+        });
+      };
+
+      request.onsuccess = function () {
+        const db = request.result;
+        db.onversionchange = function () { db.close(); };
+        resolve(db);
+      };
+
+      request.onerror = function () {
+        reject(request.error || new Error("Unable to open Star Runner database."));
+      };
+
+      request.onblocked = function () {
+        reject(new Error("Database upgrade is blocked by another open Star Runner tab."));
+      };
+    });
+  }
+
+  function validateMission(record) {
+    return !!record &&
+      typeof record.id === "string" &&
+      record.id.length > 0 &&
+      typeof record.title === "string" &&
+      record.title.length > 0;
+  }
+
+  async function migrateLegacyMissions(db) {
+    let raw;
+    try {
+      raw = root.localStorage.getItem(LEGACY_MISSION_KEY);
+    } catch (error) {
+      throw new Error("Unable to read existing mission records: " + error.message);
+    }
+
+    if (raw === null) {
+      return { migrated: false, count: 0, reason: "no-legacy-records" };
+    }
+
+    let records;
+    try {
+      records = JSON.parse(raw);
+    } catch (error) {
+      throw new Error("Existing mission data is not valid JSON. Original data was left untouched.");
+    }
+
+    if (!Array.isArray(records) || !records.every(validateMission)) {
+      throw new Error("Existing mission data did not pass validation. Original data was left untouched.");
+    }
+
+    const transaction = db.transaction(
+      [STORES.missions, STORES.system],
+      "readwrite"
+    );
+    const done = transactionDone(transaction);
+    const missions = transaction.objectStore(STORES.missions);
+    const system = transaction.objectStore(STORES.system);
+
+    const marker = await requestResult(system.get(MIGRATION_KEY));
+    if (marker) {
+      transaction.abort();
+      try { await done; } catch (_) {}
+      return {
+        migrated: false,
+        count: marker.count || 0,
+        reason: "already-migrated"
+      };
+    }
+
+    records.forEach(function (record) {
+      missions.put(record);
+    });
+
+    system.put({
+      id: MIGRATION_KEY,
+      completedAt: new Date().toISOString(),
+      count: records.length,
+      source: LEGACY_MISSION_KEY,
+      sourceRetained: true
+    });
+
+    await done;
+
+    // Deliberately retain the original localStorage key as a recovery backup.
+    return { migrated: true, count: records.length, reason: "completed" };
+  }
+
+  async function getAll(storeName) {
+    if (!Object.values(STORES).includes(storeName)) {
+      throw new Error("Unknown Star Runner data store: " + storeName);
+    }
+    const db = await open();
+    try {
+      const transaction = db.transaction([storeName], "readonly");
+      const done = transactionDone(transaction);
+      const records = await requestResult(transaction.objectStore(storeName).getAll());
+      await done;
+      return records;
+    } finally {
+      db.close();
+    }
+  }
+
+  async function put(storeName, record) {
+    if (!Object.values(STORES).includes(storeName)) {
+      throw new Error("Unknown Star Runner data store: " + storeName);
+    }
+    if (!record || typeof record.id !== "string" || !record.id) {
+      throw new TypeError("Every Star Runner record must have a non-empty string id.");
+    }
+    const db = await open();
+    try {
+      const transaction = db.transaction([storeName], "readwrite");
+      const done = transactionDone(transaction);
+      transaction.objectStore(storeName).put(record);
+      await done;
+      return record;
+    } finally {
+      db.close();
+    }
+  }
+
+  async function remove(storeName, id) {
+    if (!Object.values(STORES).includes(storeName)) {
+      throw new Error("Unknown Star Runner data store: " + storeName);
+    }
+    const db = await open();
+    try {
+      const transaction = db.transaction([storeName], "readwrite");
+      const done = transactionDone(transaction);
+      transaction.objectStore(storeName).delete(id);
+      await done;
+    } finally {
+      db.close();
+    }
+  }
+
+  async function initialize() {
+    const db = await open();
+    try {
+      const migration = await migrateLegacyMissions(db);
+      return {
+        version: "1.0.0",
+        database: DB_NAME,
+        stores: Object.keys(STORES),
+        migration: migration
+      };
+    } finally {
+      db.close();
+    }
+  }
+
+  root.StarRunnerDataStore = {
+    VERSION: "1.0.0",
+    DB_NAME: DB_NAME,
+    STORES: STORES,
+    open: open,
+    initialize: initialize,
+    migrateLegacyMissions: migrateLegacyMissions,
+    getAll: getAll,
+    put: put,
+    remove: remove
+  };
+})(typeof globalThis !== "undefined" ? globalThis : this);
