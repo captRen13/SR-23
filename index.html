@@ -132,6 +132,14 @@
       <div id="mission-list" aria-live="polite"></div>
     </section>
     <section class="panel">
+      <div class="label">APPLE CALENDAR · MISSION IMPORT</div>
+      <div style="font-weight:700;margin-top:8px">Import Calendar Events as Missions</div>
+      <p class="note">Import a Scriptable Apple Calendar JSON export. Events become mission orders; existing imported events are updated on reimport, while manually created missions remain untouched.</p>
+      <div class="btnrow">
+        <button class="action primary" id="import-apple-calendar" disabled>Import Calendar Missions</button>
+        <input id="apple-calendar-file" type="file" accept="application/json,.json" class="hidden" aria-label="Choose Apple Calendar export">
+      </div>
+      <div class="note" id="calendar-import-status" role="status" style="margin-top:10px">Calendar import will be available when the local data vault is online.</div>
       <div class="label">DATA VAULT · BACKUP & RECOVERY</div>
       <div style="font-weight:700;margin-top:8px">Local Data Backup</div>
       <p class="note">Export a copy of all Star Runner records stored on this device. Keep the backup somewhere safe, such as iCloud Drive or Files. Backups are not uploaded automatically.</p>
@@ -258,6 +266,68 @@
    $("integrity-status").textContent="INTEGRITY CHECK FAILED: "+error.message;
   }finally{button.disabled=!missionStorageReady}
  }
+  async function importAppleCalendarFile(file){
+  if(!file)return;
+  const button=$("import-apple-calendar");
+  button.disabled=true;
+  $("calendar-import-status").textContent="Reading and validating Apple Calendar export…";
+  try{
+   const payload=JSON.parse(await file.text());
+   if(!payload||payload.format!=="star-runner-apple-calendar"||payload.formatVersion!==1||!Array.isArray(payload.events)||!Array.isArray(payload.selectedCalendars)){
+    throw new Error("This is not a supported SR-23 Apple Calendar export.");
+   }
+   if(payload.eventCount!==payload.events.length){
+    throw new Error("Export event count does not match its event records. No missions were imported.");
+   }
+   const importedAt=new Date().toISOString();
+   const batchIds=new Set();
+   const imported=payload.events.map((event,index)=>{
+    if(!event||typeof event.calendarIdentifier!=="string"||!event.calendarIdentifier||typeof event.sourceEventIdentifier!=="string"||!event.sourceEventIdentifier){
+     throw new Error("Event "+(index+1)+" is missing its source calendar or event identifier.");
+    }
+    const departure=new Date(event.startDate),endDate=new Date(event.endDate);
+    if(!Number.isFinite(departure.getTime())||!Number.isFinite(endDate.getTime())||endDate<departure){
+     throw new Error("Event "+(index+1)+" has an invalid start or end time.");
+    }
+    if(departure.getTime()<EPOCH)throw new Error("Event "+(index+1)+" predates Galactic Epoch 000 and cannot be imported.");
+    const id="apple-calendar::"+event.calendarIdentifier+"::"+event.sourceEventIdentifier;
+    if(batchIds.has(id))throw new Error("The export contains a duplicate event identifier. No missions were imported.");
+    batchIds.add(id);
+    const existing=missions.find(m=>m.id===id);
+    return {
+     id,
+     title:String(event.title||"Untitled Event").trim()||"Untitled Event",
+     destination:String(event.location||""),
+     departure:departure.toISOString(),
+     objective:String(event.notes||""),
+     status:existing?existing.status:"PLANNED",
+     createdAt:existing&&existing.createdAt?existing.createdAt:importedAt,
+     source:"apple-calendar",
+     sourceEventIdentifier:event.sourceEventIdentifier,
+     sourceCalendarIdentifier:event.calendarIdentifier,
+     sourceCalendarTitle:String(event.calendarTitle||""),
+     sourceEndDate:endDate.toISOString(),
+     sourceTimeZone:event.timeZone||null,
+     isAllDay:Boolean(event.isAllDay),
+     sourceAvailability:event.availability||null,
+     importedAt
+    };
+   });
+   const existingIds=new Set(missions.map(m=>m.id));
+   const updated=imported.filter(m=>existingIds.has(m.id)).length;
+   const added=imported.length-updated;
+   await StarRunnerDataStore.putMany("missions",imported);
+   missions=await StarRunnerDataStore.getAll("missions");
+   renderMissions();
+   const calendarNames=payload.selectedCalendars.map(c=>String(c.title||"")).filter(Boolean).join(", ");
+   $("calendar-import-status").textContent="IMPORT COMPLETE. "+added+" new mission(s), "+updated+" updated. Events: "+imported.length+". Sources: "+(calendarNames||"selected Apple calendars")+". Existing mission statuses were preserved; manual missions were not changed.";
+  }catch(error){
+   $("calendar-import-status").textContent="IMPORT FAILED: "+error.message;
+  }finally{
+   button.disabled=!missionStorageReady;
+   $("apple-calendar-file").value="";
+  }
+ }
  async function exportBackup(){
   const button=$("export-backup");button.disabled=true;
   $("backup-status").textContent="Preparing a consistent local data snapshot…";
@@ -292,6 +362,8 @@
   }catch(error){$("backup-status").textContent="RESTORE FAILED: "+error.message+". Current records were not intentionally changed."}
   finally{$("choose-backup").disabled=!missionStorageReady;$("backup-file").value=""}
  }
+ $("import-apple-calendar").addEventListener("click",()=>$("apple-calendar-file").click());
+ $("apple-calendar-file").addEventListener("change",event=>importAppleCalendarFile(event.target.files&&event.target.files[0]));
  $("verify-vault").addEventListener("click",runIntegrityCheck);
  $("export-backup").addEventListener("click",exportBackup);
  $("choose-backup").addEventListener("click",()=>$("backup-file").click());
