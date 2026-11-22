@@ -175,6 +175,83 @@
     }
   }
 
+  async function createBackup() {
+    const db = await open();
+    try {
+      const storeNames = Object.keys(STORES).map(function (name) { return STORES[name]; });
+      const transaction = db.transaction(storeNames, "readonly");
+      const done = transactionDone(transaction);
+      const reads = storeNames.map(function (storeName) {
+        return requestResult(transaction.objectStore(storeName).getAll()).then(function (records) {
+          return [storeName, records];
+        });
+      });
+      const entries = await Promise.all(reads);
+      await done;
+      const data = {};
+      entries.forEach(function (entry) { data[entry[0]] = entry[1]; });
+      return {
+        format: "star-runner-backup",
+        formatVersion: 1,
+        database: DB_NAME,
+        databaseVersion: DB_VERSION,
+        createdAt: new Date().toISOString(),
+        stores: data
+      };
+    } finally {
+      db.close();
+    }
+  }
+
+  function validateBackup(backup) {
+    if (!backup || backup.format !== "star-runner-backup" || backup.formatVersion !== 1 ||
+        !backup.stores || typeof backup.stores !== "object") {
+      throw new Error("This file is not a supported Star Runner backup.");
+    }
+    Object.keys(STORES).forEach(function (name) {
+      const storeName = STORES[name];
+      const records = backup.stores[storeName];
+      if (!Array.isArray(records)) {
+        throw new Error("Backup validation failed: missing or invalid " + storeName + " records.");
+      }
+      const ids = new Set();
+      records.forEach(function (record) {
+        if (!record || typeof record.id !== "string" || !record.id || ids.has(record.id)) {
+          throw new Error("Backup validation failed: invalid or duplicate record ID in " + storeName + ".");
+        }
+        ids.add(record.id);
+      });
+    });
+    return {
+      valid: true,
+      createdAt: typeof backup.createdAt === "string" ? backup.createdAt : null,
+      counts: Object.keys(STORES).reduce(function (counts, name) {
+        const storeName = STORES[name];
+        counts[storeName] = backup.stores[storeName].length;
+        return counts;
+      }, {})
+    };
+  }
+
+  async function restoreBackup(backup) {
+    const validation = validateBackup(backup);
+    const storeNames = Object.keys(STORES).map(function (name) { return STORES[name]; });
+    const db = await open();
+    try {
+      const transaction = db.transaction(storeNames, "readwrite");
+      const done = transactionDone(transaction);
+      storeNames.forEach(function (storeName) {
+        const store = transaction.objectStore(storeName);
+        store.clear();
+        backup.stores[storeName].forEach(function (record) { store.put(record); });
+      });
+      await done;
+      return { restored: true, counts: validation.counts, createdAt: validation.createdAt };
+    } finally {
+      db.close();
+    }
+  }
+
   async function initialize() {
     const db = await open();
     try {
@@ -199,6 +276,9 @@
     migrateLegacyMissions: migrateLegacyMissions,
     getAll: getAll,
     put: put,
-    remove: remove
+    remove: remove,
+    createBackup: createBackup,
+    validateBackup: validateBackup,
+    restoreBackup: restoreBackup
   };
 })(typeof globalThis !== "undefined" ? globalThis : this);
