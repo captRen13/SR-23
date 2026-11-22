@@ -418,12 +418,13 @@
     const imported=missions.filter(m=>m.source==="apple-calendar");
     const family=imported.filter(m=>String(m.sourceCalendarTitle||"").toLowerCase().includes("family"));
     const fhe=family.filter(m=>String(m.title||"").trim().toLowerCase()==="fhe");
-    const free=fhe.filter(m=>String(m.sourceAvailability||"").toLowerCase()==="free");
-    const dateRange=free.filter(m=>{const t=Date.parse(m.departure);return Number.isFinite(t)&&t>=Date.parse("2026-10-26T00:00:00")&&t<=Date.parse("2027-02-15T23:59:59")});
+    // The exported availability field is not reliably preserved by CalendarKit.
+    // Target only the explicitly confirmed Family FHE series by calendar, title, date, and local start time.
+    const dateRange=fhe.filter(m=>{const d=new Date(m.departure);return Number.isFinite(d.getTime())&&d.getFullYear()===2026&&d.getMonth()>=9&&d.getMonth()<=11||Number.isFinite(d.getTime())&&d.getFullYear()===2027&&d.getMonth()===0||Number.isFinite(d.getTime())&&d.getFullYear()===2027&&d.getMonth()===1&&d.getDate()<=15;});
     const targets=dateRange.filter(m=>{const d=new Date(m.departure);return d.getHours()===17&&d.getMinutes()===30;})
      .sort((a,b)=>Date.parse(a.departure)-Date.parse(b.departure));
     if(targets.length!==17){
-     status.textContent="SAFETY HOLD. No missions were changed. Diagnostic counts — imported Apple Calendar: "+imported.length+"; calendar title includes Family: "+family.length+"; title FHE: "+fhe.length+"; availability free: "+free.length+"; target date range: "+dateRange.length+"; local time 5:30 PM: "+targets.length+".";
+     status.textContent="SAFETY HOLD. No missions were changed. Diagnostic counts — imported Apple Calendar: "+imported.length+"; calendar title includes Family: "+family.length+"; title FHE: "+fhe.length+"; target date range: "+dateRange.length+"; local time 5:30 PM: "+targets.length+".";
      return;
     }
     const details=targets.map(m=>new Date(m.departure).toLocaleDateString()+" · "+m.title+" · "+m.sourceCalendarTitle).join("\n");
