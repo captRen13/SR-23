@@ -244,6 +244,7 @@
       const done = transactionDone(transaction);
       const missions = transaction.objectStore(STORES.missions);
       const system = transaction.objectStore(STORES.system);
+      let conflict = null;
 
       records.forEach(function (record, index) {
         const historyId = MISSION_HISTORY_PREFIX + record.id;
@@ -255,6 +256,16 @@
           if (!state.oldReady || !state.historyReady || state.written) return;
           state.written = true;
           const before = cloneRecord(state.oldRecord);
+          const expectedRecords = options && options.expectedRecords;
+          if (expectedRecords && Object.prototype.hasOwnProperty.call(expectedRecords, record.id)) {
+            const expected = expectedRecords[record.id];
+            const conflictFields = changedMissionFields(expected, before);
+            if (conflictFields.length) {
+              conflict = { id: record.id, fields: conflictFields };
+              transaction.abort();
+              return;
+            }
+          }
           const after = deleting ? null : cloneRecord(record);
           const changedFields = changedMissionFields(before, after);
           if (changedFields.length) {
@@ -292,7 +303,14 @@
         };
       });
 
-      await done;
+      try {
+        await done;
+      } catch (error) {
+        if (conflict) {
+          throw new Error("MISSION CONFLICT: " + conflict.id + " changed after it was loaded. Conflicting fields: " + conflict.fields.join(", ") + ". Reload the mission and review the latest values before retrying.");
+        }
+        throw error;
+      }
       return records;
     } finally {
       db.close();
@@ -306,6 +324,24 @@
 
   async function putMissions(records, options) {
     return writeMissionRecords(records, options || {}, false);
+  }
+
+  async function putMissionIfUnchanged(record, expectedRecord, options) {
+    const settings = Object.assign({}, options || {});
+    settings.expectedRecords = {};
+    settings.expectedRecords[record.id] = cloneRecord(expectedRecord);
+    await writeMissionRecords([record], settings, false);
+    return record;
+  }
+
+  async function removeMissionIfUnchanged(id, expectedRecord, options) {
+    if (typeof id !== "string" || !id) throw new TypeError("A mission ID is required.");
+    if (!expectedRecord || expectedRecord.id !== id) throw new TypeError("A matching mission snapshot is required.");
+    const settings = Object.assign({}, options || {});
+    settings.expectedRecords = {};
+    settings.expectedRecords[id] = cloneRecord(expectedRecord);
+    await writeMissionRecords([expectedRecord], settings, true);
+    return true;
   }
 
   async function removeMission(id, options) {
@@ -495,6 +531,8 @@
     putMany: putMany,
     putMission: putMission,
     putMissions: putMissions,
+    putMissionIfUnchanged: putMissionIfUnchanged,
+    removeMissionIfUnchanged: removeMissionIfUnchanged,
     getMissionHistory: getMissionHistory,
     removeMission: removeMission,
     remove: remove,
