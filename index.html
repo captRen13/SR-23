@@ -264,7 +264,7 @@
     const snapshot=JSON.parse(JSON.stringify(m)),previous=m.status,previousOrigin=m.statusOrigin,previousUpdatedAt=m.statusUpdatedAt;
     m.status=e.target.value;m.statusOrigin="user";m.statusUpdatedAt=new Date().toISOString();
     try{await StarRunnerDataStore.putMissionIfUnchanged(m,snapshot,{actor:"user"});renderMissions()}
-    catch(error){m.status=previous;m.statusOrigin=previousOrigin;m.statusUpdatedAt=previousUpdatedAt;renderMissions();$("mission-error").textContent="Status update failed: "+error.message}
+    catch(error){m.status=previous;m.statusOrigin=previousOrigin;m.statusUpdatedAt=previousUpdatedAt;if(error.message.startsWith("MISSION CONFLICT:"))missions=await StarRunnerDataStore.getAll("missions");renderMissions();$("mission-error").textContent="Status update failed: "+error.message}
    });
    $("mission-list").addEventListener("click",async e=>{
      const historyButton=e.target.closest("[data-history-id]");
@@ -560,7 +560,7 @@
  }
  $("preview-calendar-reconciliation").addEventListener("click",()=>$("reconcile-calendar-file").click());
  $("reconcile-calendar-file").addEventListener("change",event=>previewCalendarReconciliation(event.target.files&&event.target.files[0]));
- $("reconciliation-results").addEventListener("click",event=>{const button=event.target.closest("[data-reconcile-action]");if(!button)return;applyCalendarReconciliationAction(button.dataset.reconcileAction,button.dataset.reconcileType,Number(button.dataset.reconcileIndex)).catch(error=>{$("reconciliation-status").textContent="ACTION FAILED: "+error.message})});
+ $("reconciliation-results").addEventListener("click",event=>{const button=event.target.closest("[data-reconcile-action]");if(!button)return;applyCalendarReconciliationAction(button.dataset.reconcileAction,button.dataset.reconcileType,Number(button.dataset.reconcileIndex)).catch(async error=>{if(error.message.startsWith("MISSION CONFLICT:")){missions=await StarRunnerDataStore.getAll("missions");renderMissions();$("reconciliation-status").textContent="CONFLICT DETECTED. The mission changed after this preview. No update was applied. Generate a fresh calendar preview and review the latest values. "+error.message}else $("reconciliation-status").textContent="ACTION FAILED: "+error.message})});
  $("import-apple-calendar").addEventListener("click",()=>$("apple-calendar-file").click());
  $("apple-calendar-file").addEventListener("change",event=>importAppleCalendarFile(event.target.files&&event.target.files[0]));
  $("verify-vault").addEventListener("click",runIntegrityCheck);
