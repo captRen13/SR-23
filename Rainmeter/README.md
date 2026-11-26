@@ -1,43 +1,46 @@
-# SR-23 Command HUD — Rainmeter 0.1.0
+# SR-23 Modular Desktop Interface — Rainmeter 0.2.0
 
-The first Windows desktop HUD for the Star Runner. This is a separate desktop skin; it does not replace the existing GitHub Pages Chronometer.
+The SR-23 Windows HUD is being rebuilt as independent, draggable Rainmeter modules. It is designed to sit over the normal Windows desktop rather than replace it.
 
-## Included
-- `SR-23.ini`: Rainmeter command-deck layout.
-- `@Resources/Scripts/Chronometer.lua`: live SRGS 1.0 time engine.
-- Live Galactic Stardate, Galactic Standard Time, cycle progress, UTC, and elapsed SI seconds.
-- Clearly marked placeholders for Pilot's Log, Engineering, and Communications. No fake telemetry or location data is displayed.
+## Modules
 
-## Install
-1. Install Rainmeter for Windows from https://www.rainmeter.net/.
-2. Download this repository folder (or the repository ZIP).
-3. Copy the `SR-23` folder into `Documents\Rainmeter\Skins\`.
-4. Open Rainmeter → Manage.
-5. Expand `SR-23`, select `SR-23.ini`, and click Load.
-6. Right-click the skin → Settings → Position → Center on screen if needed.
+- `Astra.ini`: central Astra identity and assistant-console visual shell. This is not yet connected to a live AI service.
+- `Chronometer.ini`: Galactic Stardate, Galactic Standard Time, Earth UTC, and cycle progress.
+- `Navigation.ini`: compact navigation rail.
+- `Systems.ini`: engineering panel reserved for real Windows telemetry; no fake readings are shown.
+- `SR-23.ini`: original monolithic prototype, retained for reference. Do not load it alongside the new modules unless you want the old layout too.
+- `@Resources/Scripts/Chronometer.lua`: shared local chronometer engine.
+
+## Install or update
+
+1. Download the repository ZIP from GitHub and extract it.
+2. Copy the `Rainmeter/SR-23` folder into `Documents\Rainmeter\Skins\`, replacing older copies when prompted.
+3. Right-click the Rainmeter tray icon and choose **Manage**.
+4. Click **Refresh all**.
+5. Expand `SR-23` in the left-hand skin list.
+6. Load `Astra.ini`, `Chronometer.ini`, `Navigation.ini`, and `Systems.ini` individually.
+7. Drag each module into position. Each module can be moved, hidden, and loaded independently.
 
 Expected folder structure:
 
 ```
 Documents\Rainmeter\Skins\SR-23\
+  Astra.ini
+  Chronometer.ini
+  Navigation.ini
+  Systems.ini
   SR-23.ini
   @Resources\
     Scripts\
       Chronometer.lua
 ```
 
-## Time model
-- Galactic Epoch 000: 1968-12-21 12:51:00 UTC (Apollo 8).
-- 1 Galactic Cycle: 100,000 SI seconds.
-- 100 Cycles: 1 Group.
-- 100 Groups: 1 Block.
-- Stardate: Block.Group.Cycle.
-- GST: Interval.Segment.Unit.Tick.
+## Time model caveat
 
-The skin uses the Windows system clock's Unix timestamp and formats it as UTC. It is a local-device chronometer, not an independently synchronized time authority. Windows clock accuracy, leap-second handling, and relativistic corrections are outside this prototype.
+The chosen epoch is Galactic Epoch 000 at Apollo 8's launch, 1968-12-21 12:51:00 UTC. The current prototype also uses a provisional subdivision model (100,000 SI seconds per cycle; 100 cycles per group; 100 groups per block). Those subdivisions are implementation assumptions, not yet confirmed as final SRGS canon.
+
+The chronometer uses the Windows system clock. It is not an independently synchronized time authority and does not currently implement leap-second or relativistic corrections.
 
 ## Current scope
-This is the first HUD shell. The existing mobile-friendly Chronometer at https://captren13.github.io/SR-23/ remains intact. Next modules can add a persistent Pilot's Log, Windows performance telemetry, and navigation tools. Crew and asset tracking is intentionally excluded from this first HUD release.
 
-## Visual direction
-Industrial spacecraft instrumentation: near-black panels, restrained copper/amber accents, muted steel text, and high-contrast chronometric readouts.
+The assistant console is a visual interface shell, not a working microphone, chat, or voice integration. Navigation, operations, knowledge, and engineering integrations will be developed separately. Crew and asset tracking remains out of scope until the core HUD is established.
